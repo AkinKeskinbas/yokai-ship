@@ -1566,40 +1566,74 @@ void Game::UpdateGameplay(float deltaTime)
                     {
                         it->position.x = (float)SCREEN_WIDTH * 0.5f;
                         it->position.y = EnemyConfig::Boss3.hoverY;
-                        it->bossPhase = BossPhase::LaserCharge;
-                        it->bossPhaseTimer = EnemyConfig::Boss3.centerChargeDuration;
+                        it->bossPhase = BossPhase::LaserTrack;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.aimTrackingDuration;
                         it->bossLaserAngle = 1.5707963f; // 90 deg, pointing straight down
-                        TriggerCameraShake(0.35f, 4.5f);
                     }
                 }
-                else if (it->bossPhase == BossPhase::LaserCharge)
+                else if (it->bossPhase == BossPhase::LaserTrack)
                 {
-                    // Stationary charge: Eye flares and charges with warning line pointing down
+                    // 1. AIM TRACKING: Boss actively tracks the player's position with aiming sight
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
-                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 8.0f) * 2.0f;
-                    it->bossLaserAngle = 1.5707963f; // Centered downward
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 4.0f) * 2.0f;
+
+                    float targetAngle = atan2f(m_playerPos.y - eyePos.y, m_playerPos.x - eyePos.x);
+                    float diff = targetAngle - it->bossLaserAngle;
+                    while (diff > PI)  diff -= 2.0f * PI;
+                    while (diff < -PI) diff += 2.0f * PI;
+                    it->bossLaserAngle += diff * std::min(1.0f, 6.0f * deltaTime);
 
                     it->bossPhaseTimer -= deltaTime;
                     if (it->bossPhaseTimer <= 0.0f)
                     {
-                        it->bossPhase = BossPhase::LaserSweep;
-                        it->bossPhaseTimer = EnemyConfig::Boss3.laserSweepDuration;
+                        // Transition to LOCK phase: Freeze the aim in place!
+                        it->bossPhase = BossPhase::LaserLock;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.aimLockPauseDuration;
+                        TriggerCameraShake(0.18f, 3.5f);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::LaserLock)
+                {
+                    // 2. AIM LOCK / TELEGRAPH ESCAPE WINDOW:
+                    // Aim is locked firmly in place (stops tracking player) to give player clear time to dodge/dash!
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 8.0f) * 2.0f;
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        // Transition to MASSIVE FIRE phase!
+                        it->bossPhase = BossPhase::LaserFire;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.laserFiringDuration;
                         it->bossLaserDamageTimer = 0.0f;
-                        TriggerCameraShake(0.40f, 6.0f);
+                        TriggerCameraShake(0.40f, 6.5f);
                         if (m_soundShoot != -1) PlayAudio(m_soundShoot);
                     }
                 }
-                else if (it->bossPhase == BossPhase::LaserSweep)
+                else if (it->bossPhase == BossPhase::LaserFire)
                 {
+                    // 3. MASSIVE BEAM DISCHARGE & HEAVY SLOW TRACKING:
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 12.0f) * 2.0f;
 
-                    // Progress 0.0 (start) to 1.0 (end)
-                    float progress = 1.0f - std::clamp(it->bossPhaseTimer / EnemyConfig::Boss3.laserSweepDuration, 0.0f, 1.0f);
-                    // Sweep frequency accelerates from sweepStartFrequency to sweepEndFrequency (slow to fast!)
-                    float currentFreq = EnemyConfig::Boss3.sweepStartFrequency + progress * (EnemyConfig::Boss3.sweepEndFrequency - EnemyConfig::Boss3.sweepStartFrequency);
-                    it->bossLaserSweepFreq = currentFreq;
-                    it->bossLaserAngle = 1.5707963f + sinf(m_totalTime * currentFreq) * EnemyConfig::Boss3.laserMaxAngleOffset;
+                    // Slowly and heavily turn beam towards player's position (allowing player to out-maneuver)
+                    float targetAngle = atan2f(m_playerPos.y - eyePos.y, m_playerPos.x - eyePos.x);
+                    float diff = targetAngle - it->bossLaserAngle;
+                    while (diff > PI)  diff -= 2.0f * PI;
+                    while (diff < -PI) diff += 2.0f * PI;
+
+                    float turnStep = EnemyConfig::Boss3.laserTrackingTurnSpeed * deltaTime;
+                    if (fabsf(diff) <= turnStep)
+                    {
+                        it->bossLaserAngle = targetAngle;
+                    }
+                    else
+                    {
+                        it->bossLaserAngle += (diff > 0.0f ? turnStep : -turnStep);
+                    }
+
+                    // Continuous beam camera rumble
+                    TriggerCameraShake(0.08f, 3.2f);
 
                     // Player Hitbox vs Sweeping Purple Laser Line Segment
                     DirectX::XMFLOAT2 beamDir = { cosf(it->bossLaserAngle), sinf(it->bossLaserAngle) };
@@ -3014,7 +3048,7 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bossPhaseTimer = 0.0f;
         boss.bossShootTimer = 0.0f;
         boss.bossLaserAngle = 1.5707963f; // PI / 2 (pointing straight down)
-        boss.bossLaserSweepFreq = EnemyConfig::Boss3.sweepStartFrequency;
+        boss.bossLaserSweepFreq = EnemyConfig::Boss3.laserTrackingTurnSpeed;
         boss.bossLaserDamageTimer = 0.0f;
         boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, EnemyConfig::Boss3.hoverY);
     }
@@ -3148,9 +3182,11 @@ void Game::DrawGameplay()
                 ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f)
                 : (ast.bossType == 2 && ast.bossPhase == BossPhase::AlarmWarning)
                     ? DirectX::XMFLOAT4(1.0f, 0.4f + 0.6f * sinf(m_totalTime * 22.0f), 0.3f, 1.0f)
-                    : (ast.bossType == 3 && ast.bossPhase == BossPhase::LaserCharge)
-                        ? DirectX::XMFLOAT4(1.0f, 0.5f + 0.5f * sinf(m_totalTime * 20.0f), 1.0f, 1.0f)
-                        : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+                    : (ast.bossType == 3 && ast.bossPhase == BossPhase::LaserLock)
+                        ? DirectX::XMFLOAT4(1.0f, 0.3f + 0.7f * sinf(m_totalTime * 25.0f), 0.4f, 1.0f)
+                        : (ast.bossType == 3 && ast.bossPhase == BossPhase::LaserTrack)
+                            ? DirectX::XMFLOAT4(1.0f, 0.6f + 0.4f * sinf(m_totalTime * 12.0f), 1.0f, 1.0f)
+                            : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
             // Boss 2: In AlarmWarning phase - draw pulsing expanding alarm aura circles and warning text
             if (ast.bossType == 2 && ast.bossPhase == BossPhase::AlarmWarning)
@@ -3163,34 +3199,51 @@ void Game::DrawGameplay()
                     "! DIKKAT : SPIRAL SALDIRI !", 1.4f, m_texLaser, { 1.0f, 0.3f, 0.3f, 1.0f });
             }
 
-            // Boss 3: Eye Emitter & Sweeping Purple Death Laser Visuals
+            // Boss 3: Eye Emitter & Multi-Phase Telegraph Laser Visuals
             if (ast.bossType == 3)
             {
                 float eyeX = ast.position.x + camX;
                 float eyeY = ast.position.y + camY + 10.0f;
+                DirectX::XMFLOAT2 aimDir = { cosf(ast.bossLaserAngle), sinf(ast.bossLaserAngle) };
 
                 // Central Eye Flare Pulse
                 float eyePulse = sinf(m_totalTime * 8.0f) * 0.20f + 0.80f;
                 Sprite_DrawCircle(eyeX, eyeY, 13.0f, 2.0f, { 0.90f, 0.25f, 1.0f, eyePulse }, 18);
 
-                // In LaserCharge phase: Warning aim beam & converging energy rings
-                if (ast.bossPhase == BossPhase::LaserCharge)
+                // Phase 1: LaserTrack - Active Aim Tracking with Dotted Purple Ray
+                if (ast.bossPhase == BossPhase::LaserTrack)
                 {
-                    // Converging purple energy circles collapsing into eye
-                    float ringProgress = fmodf(m_totalTime * 2.8f, 1.0f);
-                    Sprite_DrawCircle(eyeX, eyeY, 55.0f * (1.0f - ringProgress) + 10.0f, 2.5f, { 0.95f, 0.35f, 1.0f, ringProgress }, 24);
-
-                    // Warning tracking line
-                    for (float d = 40.0f; d < 1200.0f; d += 45.0f)
+                    for (float d = 35.0f; d < 1300.0f; d += 40.0f)
                     {
-                        Sprite_DrawCircle(eyeX, eyeY + d, 3.5f, 1.8f, { 0.95f, 0.30f, 1.0f, 0.55f }, 10);
+                        Sprite_DrawCircle(eyeX + aimDir.x * d, eyeY + aimDir.y * d, 3.2f, 1.6f, { 0.90f, 0.30f, 1.0f, 0.65f }, 10);
+                    }
+                    DrawMatrixString(ast.position.x + camX - 65.0f, ast.position.y + camY - h * 0.5f - 38.0f,
+                        "! HEDEFLENIYOR !", 1.4f, m_texLaser, { 0.90f, 0.45f, 1.0f, 1.0f });
+                }
+                // Phase 2: LaserLock - Solid Locked Warning Beam (Player's Escape Opportunity Window!)
+                else if (ast.bossPhase == BossPhase::LaserLock)
+                {
+                    // Collapsing energy rings into central eye
+                    float ringProgress = fmodf(m_totalTime * 3.5f, 1.0f);
+                    Sprite_DrawCircle(eyeX, eyeY, 50.0f * (1.0f - ringProgress) + 10.0f, 2.5f, { 1.0f, 0.25f, 0.45f, ringProgress }, 24);
+
+                    // Solid warning locked line
+                    float beamLen = 1400.0f;
+                    float midX = eyeX + aimDir.x * (beamLen * 0.5f);
+                    float midY = eyeY + aimDir.y * (beamLen * 0.5f);
+                    if (m_texLaser != -1)
+                    {
+                        int tW = Texture_GetWidth(m_texLaser);
+                        int tH = Texture_GetHeight(m_texLaser);
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 6.0f, beamLen, 12.0f,
+                            0, 0, tW, tH, ast.bossLaserAngle, { 1.0f, 1.0f }, { 1.0f, 0.20f, 0.35f, 0.85f });
                     }
 
-                    DrawMatrixString(ast.position.x + camX - 70.0f, ast.position.y + camY - h * 0.5f - 38.0f,
-                        "! DIKKAT : MOR LAZER !", 1.4f, m_texLaser, { 0.95f, 0.35f, 1.0f, 1.0f });
+                    DrawMatrixString(ast.position.x + camX - 75.0f, ast.position.y + camY - h * 0.5f - 38.0f,
+                        "! KILITLENDI : KAC !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
                 }
-                // In LaserSweep phase: Glorious Multi-Layer Sweeping Purple Death Laser
-                else if (ast.bossPhase == BossPhase::LaserSweep)
+                // Phase 3: LaserFire - Glorious 3-Layer Massive Purple Death Beam Discharge
+                else if (ast.bossPhase == BossPhase::LaserFire)
                 {
                     float beamLen = 1400.0f;
                     float rot = ast.bossLaserAngle;
@@ -3203,27 +3256,27 @@ void Game::DrawGameplay()
                         int tH = Texture_GetHeight(m_texLaser);
 
                         // Layer 1: Wide Outer Violet Bloom Aura
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 26.0f, beamLen, 52.0f,
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 28.0f, beamLen, 56.0f,
                             0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 0.75f, 0.10f, 0.98f, 0.40f });
 
                         // Layer 2: Neon Purple Core Laser Beam
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 14.0f, beamLen, 28.0f,
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 16.0f, beamLen, 32.0f,
                             0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 0.95f, 0.40f, 1.0f, 0.85f });
 
                         // Layer 3: Superhot White-Hot Center
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 4.5f, beamLen, 9.0f,
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 5.0f, beamLen, 10.0f,
                             0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 1.0f, 0.95f, 1.0f, 0.98f });
                     }
 
                     // Corona Burst at eye emitter
-                    Sprite_DrawCircle(eyeX, eyeY, 24.0f, 3.0f, { 1.0f, 0.50f, 1.0f, 0.95f }, 24);
-                    Sprite_DrawCircle(eyeX, eyeY, 12.0f, 2.0f, { 1.0f, 1.0f, 1.0f, 1.0f }, 16);
+                    Sprite_DrawCircle(eyeX, eyeY, 26.0f, 3.2f, { 1.0f, 0.50f, 1.0f, 0.95f }, 24);
+                    Sprite_DrawCircle(eyeX, eyeY, 13.0f, 2.2f, { 1.0f, 1.0f, 1.0f, 1.0f }, 16);
 
                     // Flowing energy sparks along the beam
                     for (int s = 0; s < 5; ++s)
                     {
                         float sDist = fmodf(m_totalTime * 850.0f + (float)s * 250.0f, beamLen);
-                        Sprite_DrawCircle(eyeX + cosf(rot) * sDist, eyeY + sinf(rot) * sDist, 7.0f, 1.8f, { 1.0f, 0.70f, 1.0f, 0.80f }, 12);
+                        Sprite_DrawCircle(eyeX + cosf(rot) * sDist, eyeY + sinf(rot) * sDist, 7.5f, 1.8f, { 1.0f, 0.70f, 1.0f, 0.80f }, 12);
                     }
                 }
             }

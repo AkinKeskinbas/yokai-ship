@@ -131,8 +131,9 @@ enum class BossPhase
     Cooldown,       // Brief recovery before resuming Patrol
     GlideTop,       // Boss 3: Glides horizontally across top of screen
     MoveToCenter,   // Boss 3: Moves smoothly to top center
-    LaserCharge,    // Boss 3: Eye flares with purple energy & warning tracking beam
-    LaserSweep      // Boss 3: Sweeps bright purple death laser left to right (slow to fast)
+    LaserTrack,     // Boss 3: Purple aim sight actively tracks player's position
+    LaserLock,      // Boss 3: Aim sight turns solid & locks in place, giving player dodge/escape window
+    LaserFire       // Boss 3: Massive purple death beam fires along locked vector, slowly tracking player
 };
 
 // Enemy Projectile (4-way bullets from enemies and boss spirals)
