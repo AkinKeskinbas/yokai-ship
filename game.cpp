@@ -340,6 +340,12 @@ void Game::ResetRun()
     m_laserFireCooldown = 0.0f;
     m_laserDamageTickTimer = 0.0f;
     m_runState = RunState::Active;
+    m_deathSequenceTimer = 0.0f;
+    m_bossDeathTimer = 0.0f;
+    m_explosionStaggerTimer = 0.0f;
+    m_defeatedBossPos = { 0.0f, 0.0f };
+    m_bossTriggered = false;
+    m_bossVictory = false;
     m_runStats = {};
     m_superVacuumActive = false;
     m_reishiCount = 0;
@@ -681,9 +687,24 @@ void Game::UpdateGameplay(float deltaTime)
         if (m_fuel <= 0.0f)
         {
             m_fuel = 0.0f;
-            m_runState = RunState::RunEnded;
-            m_superVacuumActive = true;
-            m_endRunTimer = 7.0f;
+            m_runState = RunState::PlayerDying;
+            m_deathSequenceTimer = 2.4f;
+            m_explosionStaggerTimer = 0.0f;
+            m_superVacuumActive = false;
+
+            TriggerCameraShake(0.85f, 20.0f);
+            TriggerShockwave(m_playerPos, 280.0f, 0.0f);
+
+            VFXInstance exp;
+            exp.position = m_playerPos;
+            exp.lifetime = 0.0f;
+            exp.maxLifetime = 0.65f;
+            exp.scale = 2.8f;
+            exp.isMultiTexture = true;
+            exp.textureSequence = m_texExplosions;
+            m_vfxs.push_back(exp);
+
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
         }
 
         // Calamity progression over time
@@ -1135,11 +1156,30 @@ void Game::UpdateGameplay(float deltaTime)
                 {
                     // Boss Victory! Advance Sector & Drop Balanced Resources
                     m_bossVictory = true;
-                    m_runState = RunState::RunEnded;
-                    m_endRunTimer = 7.5f;
+                    m_runState = RunState::BossDefeated;
+                    m_bossDeathTimer = 3.6f; // 3.6 seconds celebratory victory & vacuum
+                    m_explosionStaggerTimer = 0.0f;
+                    m_defeatedBossPos = it->position;
                     m_superVacuumActive = true;
                     m_runStats.enemiesKilled++;
-                    TriggerCameraShake(0.85f, 22.0f);
+
+                    TriggerCameraShake(0.95f, 26.0f);
+                    TriggerShockwave(it->position, 360.0f, 0.0f);
+
+                    // Clear lingering enemy bullets for safe victory
+                    m_enemyProjectiles.clear();
+
+                    // Initial giant core explosion on boss
+                    VFXInstance coreExp;
+                    coreExp.position = it->position;
+                    coreExp.lifetime = 0.0f;
+                    coreExp.maxLifetime = 0.70f;
+                    coreExp.scale = 3.8f;
+                    coreExp.isMultiTexture = true;
+                    coreExp.textureSequence = m_texExplosions;
+                    m_vfxs.push_back(coreExp);
+
+                    if (m_soundShoot != -1) PlayAudio(m_soundShoot);
 
                     // Unlock next sector on the map!
                     int defeatedLevel = (it->bossType == 2) ? 2 : m_calamity.level;
@@ -1719,6 +1759,289 @@ void Game::UpdateGameplay(float deltaTime)
         else
         {
             m_cameraOffset = { 0.0f, 0.0f };
+        }
+    }
+    else if (m_runState == RunState::PlayerDying)
+    {
+        m_deathSequenceTimer -= deltaTime;
+        m_explosionStaggerTimer -= deltaTime;
+
+        // Multi-staged explosion cascade on player ship
+        if (m_explosionStaggerTimer <= 0.0f && m_deathSequenceTimer > 0.35f)
+        {
+            m_explosionStaggerTimer = 0.28f;
+            VFXInstance subExp;
+            subExp.position = { m_playerPos.x + RandomFloat(-34.0f, 34.0f), m_playerPos.y + RandomFloat(-34.0f, 34.0f) };
+            subExp.lifetime = 0.0f;
+            subExp.maxLifetime = 0.55f;
+            subExp.scale = RandomFloat(1.6f, 2.5f);
+            subExp.isMultiTexture = true;
+            subExp.textureSequence = m_texExplosions;
+            m_vfxs.push_back(subExp);
+
+            TriggerCameraShake(0.35f, 9.0f);
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Update VFXs & Damage popups during death pause
+        for (auto it = m_vfxs.begin(); it != m_vfxs.end(); )
+        {
+            it->lifetime += deltaTime;
+            if (it->isMultiTexture)
+            {
+                int totalFrames = (int)it->textureSequence.size();
+                int frame = (int)((it->lifetime / it->maxLifetime) * (float)totalFrames);
+                it->currentFrame = std::min(frame, totalFrames - 1);
+            }
+            else if (it->isSpriteSheet)
+            {
+                int frame = (int)(it->lifetime / it->frameDuration);
+                it->currentFrame = std::min(frame, it->frameCount - 1);
+            }
+
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_vfxs.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        for (auto it = m_damagePopups.begin(); it != m_damagePopups.end(); )
+        {
+            it->lifetime += deltaTime;
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+            it->velocity.y += 120.0f * deltaTime;
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_damagePopups.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        // Camera Shake decay
+        if (m_cameraShakeTimer > 0.0f)
+        {
+            m_cameraShakeTimer -= deltaTime;
+            float progress = (m_cameraShakeMaxDuration > 0.0001f) ? (m_cameraShakeTimer / m_cameraShakeMaxDuration) : 0.0f;
+            progress = std::clamp(progress, 0.0f, 1.0f);
+            float curIntensity = m_cameraShakeIntensity * progress;
+            if (curIntensity > 0.01f)
+            {
+                m_cameraOffset.x = RandomFloat(-curIntensity, curIntensity);
+                m_cameraOffset.y = RandomFloat(-curIntensity, curIntensity);
+            }
+            else
+            {
+                m_cameraOffset = { 0.0f, 0.0f };
+            }
+        }
+        else
+        {
+            m_cameraOffset = { 0.0f, 0.0f };
+        }
+
+        if (m_deathSequenceTimer <= 0.0f)
+        {
+            m_runState = RunState::RunEnded;
+        }
+    }
+    else if (m_runState == RunState::BossDefeated)
+    {
+        m_bossDeathTimer -= deltaTime;
+        m_explosionStaggerTimer -= deltaTime;
+
+        // Player can still move around freely using WASD
+        DirectX::XMFLOAT2 moveInput{ 0.0f, 0.0f };
+        if (InputKeyboard_IsPress(KK_W) || InputKeyboard_IsPress(KK_UP))    moveInput.y -= 1.0f;
+        if (InputKeyboard_IsPress(KK_S) || InputKeyboard_IsPress(KK_DOWN))  moveInput.y += 1.0f;
+        if (InputKeyboard_IsPress(KK_A) || InputKeyboard_IsPress(KK_LEFT))  moveInput.x -= 1.0f;
+        if (InputKeyboard_IsPress(KK_D) || InputKeyboard_IsPress(KK_RIGHT)) moveInput.x += 1.0f;
+        float inputLen = sqrtf(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
+        if (inputLen > 0.001f)
+        {
+            moveInput.x /= inputLen;
+            moveInput.y /= inputLen;
+            float targetRot = atan2f(moveInput.x, -moveInput.y);
+            float rotDiff = targetRot - m_playerRotation;
+            while (rotDiff > PI)  rotDiff -= 2.0f * PI;
+            while (rotDiff < -PI) rotDiff += 2.0f * PI;
+            m_playerRotation += rotDiff * std::min(1.0f, 16.0f * deltaTime);
+        }
+        while (m_playerRotation > PI)  m_playerRotation -= 2.0f * PI;
+        while (m_playerRotation < -PI) m_playerRotation += 2.0f * PI;
+        DirectX::XMFLOAT2 targetVel{ moveInput.x * m_stats.moveSpeed, moveInput.y * m_stats.moveSpeed };
+        float accelRate = (inputLen > 0.001f) ? 14.0f : 8.5f;
+        m_playerVelocity.x += (targetVel.x - m_playerVelocity.x) * accelRate * deltaTime;
+        m_playerVelocity.y += (targetVel.y - m_playerVelocity.y) * accelRate * deltaTime;
+        m_playerPos.x += m_playerVelocity.x * deltaTime;
+        m_playerPos.y += m_playerVelocity.y * deltaTime;
+        m_playerPos.x = std::clamp(m_playerPos.x, 50.0f, (float)SCREEN_WIDTH - 50.0f);
+        m_playerPos.y = std::clamp(m_playerPos.y, 50.0f, (float)SCREEN_HEIGHT - 50.0f);
+
+        // Cascading multi-explosion sequence on boss wreckage
+        if (m_explosionStaggerTimer <= 0.0f && m_bossDeathTimer > 0.35f)
+        {
+            m_explosionStaggerTimer = 0.22f;
+            VFXInstance subExp;
+            subExp.position = { m_defeatedBossPos.x + RandomFloat(-85.0f, 85.0f), m_defeatedBossPos.y + RandomFloat(-85.0f, 85.0f) };
+            subExp.lifetime = 0.0f;
+            subExp.maxLifetime = 0.60f;
+            subExp.scale = RandomFloat(2.2f, 3.4f);
+            subExp.isMultiTexture = true;
+            subExp.textureSequence = m_texExplosions;
+            m_vfxs.push_back(subExp);
+
+            TriggerCameraShake(0.32f, 8.5f);
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Active Super Vacuum: high-speed magnetic pull for all boss drops to player!
+        float currentPickupRadius = 3500.0f;
+        float currentMagnetSpeed = 1200.0f;
+        for (auto it = m_pickups.begin(); it != m_pickups.end(); )
+        {
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+            it->velocity.x *= 0.94f;
+            it->velocity.y *= 0.94f;
+
+            float pDx = m_playerPos.x - it->position.x;
+            float pDy = m_playerPos.y - it->position.y;
+            float pDist = sqrt(pDx * pDx + pDy * pDy);
+
+            if (pDist < currentPickupRadius)
+            {
+                it->position.x += (pDx / pDist) * currentMagnetSpeed * deltaTime;
+                it->position.y += (pDy / pDist) * currentMagnetSpeed * deltaTime;
+            }
+
+            if (pDist < 36.0f)
+            {
+                if (it->type == PickupType::Reishi)
+                {
+                    int gain = (int)ceilf((float)it->amount * m_stats.resourceMultiplier);
+                    m_reishiCount += gain;
+                    m_runStats.reishiCollected += gain;
+                    m_upgradeTree.AddRunEarnings(m_resources, gain, 0, 0, 0, 0);
+                    SpawnDamagePopup(m_playerPos, gain, false, false, true);
+                }
+                else if (it->type == PickupType::Vida)
+                {
+                    m_runStats.vidaCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, it->amount, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Disli)
+                {
+                    m_runStats.disliCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, it->amount, 0, 0);
+                }
+                else if (it->type == PickupType::Cpu)
+                {
+                    m_runStats.cpuCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, it->amount, 0);
+                }
+                else if (it->type == PickupType::Key)
+                {
+                    m_runStats.keyCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, 0, it->amount);
+                }
+
+                it = m_pickups.erase(it);
+                continue;
+            }
+            ++it;
+        }
+
+        // Update VFXs, Shockwaves, and Damage popups
+        for (auto it = m_vfxs.begin(); it != m_vfxs.end(); )
+        {
+            it->lifetime += deltaTime;
+            if (it->isMultiTexture)
+            {
+                int totalFrames = (int)it->textureSequence.size();
+                int frame = (int)((it->lifetime / it->maxLifetime) * (float)totalFrames);
+                it->currentFrame = std::min(frame, totalFrames - 1);
+            }
+            else if (it->isSpriteSheet)
+            {
+                int frame = (int)(it->lifetime / it->frameDuration);
+                it->currentFrame = std::min(frame, it->frameCount - 1);
+            }
+
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_vfxs.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        for (auto it = m_shockwaves.begin(); it != m_shockwaves.end(); )
+        {
+            it->lifetime += deltaTime;
+            float progress = it->lifetime / it->maxLifetime;
+            it->currentRadius = 10.0f + (it->maxRadius - 10.0f) * progress;
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_shockwaves.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        for (auto it = m_damagePopups.begin(); it != m_damagePopups.end(); )
+        {
+            it->lifetime += deltaTime;
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+            it->velocity.y += 120.0f * deltaTime;
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_damagePopups.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        // Camera Shake decay
+        if (m_cameraShakeTimer > 0.0f)
+        {
+            m_cameraShakeTimer -= deltaTime;
+            float progress = (m_cameraShakeMaxDuration > 0.0001f) ? (m_cameraShakeTimer / m_cameraShakeMaxDuration) : 0.0f;
+            progress = std::clamp(progress, 0.0f, 1.0f);
+            float curIntensity = m_cameraShakeIntensity * progress;
+            if (curIntensity > 0.01f)
+            {
+                m_cameraOffset.x = RandomFloat(-curIntensity, curIntensity);
+                m_cameraOffset.y = RandomFloat(-curIntensity, curIntensity);
+            }
+            else
+            {
+                m_cameraOffset = { 0.0f, 0.0f };
+            }
+        }
+        else
+        {
+            m_cameraOffset = { 0.0f, 0.0f };
+        }
+
+        // Transition to summary card after sequence completes
+        if (m_bossDeathTimer <= 0.0f)
+        {
+            m_runState = RunState::RunEnded;
         }
     }
     else if (m_runState == RunState::RunEnded)
@@ -2402,19 +2725,24 @@ void Game::DamagePlayer(int amount)
     if (m_playerHealth <= 0)
     {
         m_playerHealth = 0;
-        m_runState = RunState::RunEnded;
-        m_superVacuumActive = true;
-        m_endRunTimer = 7.0f;
-        TriggerCameraShake(0.65f, 15.0f);
+        m_runState = RunState::PlayerDying;
+        m_deathSequenceTimer = 2.4f; // 2.4 seconds dramatic explosion pause
+        m_explosionStaggerTimer = 0.0f;
+        m_superVacuumActive = false;
+
+        TriggerCameraShake(0.85f, 20.0f);
+        TriggerShockwave(m_playerPos, 280.0f, 0.0f);
 
         VFXInstance exp;
         exp.position = m_playerPos;
         exp.lifetime = 0.0f;
-        exp.maxLifetime = 0.6f;
-        exp.scale = 2.5f;
+        exp.maxLifetime = 0.65f;
+        exp.scale = 2.8f;
         exp.isMultiTexture = true;
         exp.textureSequence = m_texExplosions;
         m_vfxs.push_back(exp);
+
+        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
     }
 }
 
@@ -2879,7 +3207,11 @@ void Game::DrawGameplay()
     }
 
     // 6. Draw Player spaceship
-    if (m_texSpaceship != -1 && (m_playerHealth > 0 || m_runState != RunState::RunEnded))
+    bool isShipVisible = (m_playerHealth > 0 && m_runState == RunState::Active) ||
+                         (m_runState == RunState::BossDefeated) ||
+                         (m_runState == RunState::PlayerDying && m_deathSequenceTimer > 2.05f);
+
+    if (m_texSpaceship != -1 && isShipVisible)
     {
         float w = 48.0f;
         float h = 72.0f;

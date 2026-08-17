@@ -18,7 +18,9 @@ enum class GameScene
 enum class RunState
 {
     Active,
-    RunEnded,
+    PlayerDying,     // Player died: dramatic pause, multi-explosion cascade, camera shake
+    BossDefeated,    // Boss defeated: massive explosion chain, super vacuum collects resources
+    RunEnded,        // Summary card is displayed, awaiting player action
     TransitionToUpgrade
 };
 
@@ -519,8 +521,12 @@ private:
     std::vector<EnemyProjectile> m_enemyProjectiles;
     std::vector<DamagePopup> m_damagePopups;
 
-    // Transition timers
+    // Transition timers & Sequences
     float m_endRunTimer = 0.0f;
+    float m_deathSequenceTimer = 0.0f;
+    float m_bossDeathTimer = 0.0f;
+    float m_explosionStaggerTimer = 0.0f;
+    DirectX::XMFLOAT2 m_defeatedBossPos{ 0.0f, 0.0f };
 };
 
 #endif // GAME_H
