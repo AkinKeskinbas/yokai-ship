@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="yokai_ship.vcxproj" Id="7a421ef4-6f98-4cba-9a57-08098c11aa23" />
+</Solution>

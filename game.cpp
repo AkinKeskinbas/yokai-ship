@@ -1,0 +1,3377 @@
+#include "game.h"
+#include "direct3d.h"
+#include "sprite.h"
+#include "texture.h"
+#include "input_keyboard.h"
+#include "input_mouse.h"
+#include "configuration.h"
+#include "audio.h"
+#include <cmath>
+#include <algorithm>
+#include <random>
+#include <string>
+
+static constexpr float PI = 3.14159265f;
+
+// 3x5 Dot Matrix font mapping for UI rendering
+static uint16_t GetCharMask(char c)
+{
+    c = static_cast<char>(toupper(c));
+    switch (c)
+    {
+        case '0': return 0b111101101101111;
+        case '1': return 0b010010010010010;
+        case '2': return 0b111001111100111;
+        case '3': return 0b111001111001111;
+        case '4': return 0b101101111001001;
+        case '5': return 0b111100111001111;
+        case '6': return 0b111100111101111;
+        case '7': return 0b111001001001001;
+        case '8': return 0b111101111101111;
+        case '9': return 0b111101111001111;
+        
+        case 'A': return 0b111101111101101;
+        case 'B': return 0b110101110101110;
+        case 'C': return 0b111100100100111;
+        case 'D': return 0b110101101101110;
+        case 'E': return 0b111100111100111;
+        case 'F': return 0b111100111100100;
+        case 'G': return 0b111100101101111;
+        case 'H': return 0b101101111101101;
+        case 'I': return 0b111010010010111;
+        case 'J': return 0b001001001101110;
+        case 'K': return 0b101110110101101;
+        case 'L': return 0b100100100100111;
+        case 'M': return 0b101111101101101;
+        case 'N': return 0b111101101101101;
+        case 'O': return 0b111101101101111;
+        case 'P': return 0b111101111100100;
+        case 'Q': return 0b111101101111011;
+        case 'R': return 0b111101111101101;
+        case 'S': return 0b111100111001111;
+        case 'T': return 0b111010010010010;
+        case 'U': return 0b101101101101111;
+        case 'V': return 0b101101101101010;
+        case 'W': return 0b101101101111101;
+        case 'X': return 0b101101010101101;
+        case 'Y': return 0b101101010010010;
+        case 'Z': return 0b111001010100111;
+
+        case '-': return 0b000000111000000;
+        case ':': return 0b000010000010000;
+        case '\'': return 0b010010000000000;
+        case '.': return 0b000000000000010;
+        case '+': return 0b000010111010000;
+        case '/': return 0b001010010010100;
+        case '%': return 0b101010010010101;
+        default:  return 0b000000000000000;
+    }
+}
+
+static void DrawMatrixString(float x, float y, const char* str, float size, int texture_id, DirectX::XMFLOAT4 color = { 1.0f, 1.0f, 1.0f, 1.0f })
+{
+    if (texture_id == -1) return;
+    float current_x = x;
+    int src_x = 768;
+    int src_y = 512;
+    int src_size = 8;
+
+    while (*str)
+    {
+        char c = *str;
+        if (c == ' ')
+        {
+            current_x += 4.0f * size;
+        }
+        else
+        {
+            uint16_t mask = GetCharMask(c);
+            for (int row = 0; row < 5; ++row)
+            {
+                for (int col = 0; col < 3; ++col)
+                {
+                    int bit_index = 14 - (row * 3 + col);
+                    if ((mask >> bit_index) & 1)
+                    {
+                        float px = current_x + col * size;
+                        float py = y + row * size;
+                        Sprite_Draw(texture_id, px, py, size, size, src_x, src_y, src_size, src_size, color);
+                    }
+                }
+            }
+            current_x += 4.0f * size;
+        }
+        str++;
+    }
+}
+
+static void DrawNumber(float x, float y, int value, int digitCount, float spacing, int textureId, DirectX::XMFLOAT4 color = { 1.0f, 1.0f, 1.0f, 1.0f })
+{
+    if (textureId == -1) return;
+
+    int temp = value;
+    float digitWidth = 24.0f;
+    float digitHeight = 24.0f;
+
+    for (int i = 0; i < digitCount; i++)
+    {
+        int divisor = static_cast<int>(pow(10, digitCount - 1 - i));
+        int digitVal = (temp / divisor) % 10;
+
+        int src_x = digitVal * 64;
+        int src_y = 0;
+
+        float drawX = x + i * spacing;
+        float drawY = y;
+
+        Sprite_Draw(textureId, drawX, drawY, digitWidth, digitHeight, src_x, src_y, 64, 64, color);
+    }
+}
+
+static void DrawDamageNumber(float centerX, float centerY, int value, float scale, int textureId, const DirectX::XMFLOAT4& color, bool isCrit, bool isWeakpoint, int laserTexId)
+{
+    if (textureId == -1 || value <= 0) return;
+
+    std::string str = std::to_string(value);
+    int numDigits = static_cast<int>(str.length());
+
+    float digitSize = (isCrit || isWeakpoint ? 28.0f : 20.0f) * scale;
+    float spacing = digitSize * 0.68f;
+    float totalWidth = (numDigits - 1) * spacing + digitSize;
+    float startX = centerX - totalWidth * 0.5f;
+    float startY = centerY - digitSize * 0.5f;
+
+    float alpha = color.w;
+
+    // 1. WoW-Style Heavy 8-Way Black Contour Shadow (Extreme contrast against bright lasers/nebulae)
+    DirectX::XMFLOAT4 shadowCol{ 0.02f, 0.02f, 0.04f, alpha * 0.95f };
+    float outlineOffset = (isCrit || isWeakpoint) ? 2.6f : 1.8f;
+    const float offsets[8][2] = {
+        { -outlineOffset, 0.0f }, { outlineOffset, 0.0f },
+        { 0.0f, -outlineOffset }, { 0.0f, outlineOffset },
+        { -outlineOffset * 0.707f, -outlineOffset * 0.707f }, { outlineOffset * 0.707f, -outlineOffset * 0.707f },
+        { -outlineOffset * 0.707f, outlineOffset * 0.707f }, { outlineOffset * 0.707f, outlineOffset * 0.707f }
+    };
+
+    for (int k = 0; k < 8; ++k)
+    {
+        for (int i = 0; i < numDigits; i++)
+        {
+            int digitVal = str[i] - '0';
+            float drawX = startX + i * spacing + offsets[k][0];
+            float drawY = startY + offsets[k][1];
+            Sprite_Draw(textureId, drawX, drawY, digitSize, digitSize, digitVal * 64, 0, 64, 64, shadowCol);
+        }
+    }
+
+    // 2. WoW-Style Radiant Critical Burst Accents / Exclamation Star Glints
+    if (isCrit || isWeakpoint)
+    {
+        float glintSize = digitSize * 0.65f;
+        float leftGlintX = startX - glintSize - 4.0f;
+        float rightGlintX = startX + totalWidth + 4.0f;
+        float glintY = startY + (digitSize - glintSize) * 0.5f;
+
+        // Shadow for glints
+        Sprite_DrawRect(leftGlintX - 1.0f, glintY + glintSize * 0.4f, glintSize + 2.0f, 3.5f, shadowCol);
+        Sprite_DrawRect(leftGlintX + glintSize * 0.4f - 1.0f, glintY, 3.5f, glintSize, shadowCol);
+        Sprite_DrawRect(rightGlintX - 1.0f, glintY + glintSize * 0.4f, glintSize + 2.0f, 3.5f, shadowCol);
+        Sprite_DrawRect(rightGlintX + glintSize * 0.4f - 1.0f, glintY, 3.5f, glintSize, shadowCol);
+
+        // Radiant foreground glints
+        DirectX::XMFLOAT4 glintCol = isWeakpoint
+            ? DirectX::XMFLOAT4(0.35f, 1.0f, 0.95f, alpha)
+            : DirectX::XMFLOAT4(1.0f, 0.90f, 0.25f, alpha);
+
+        Sprite_DrawRect(leftGlintX, glintY + glintSize * 0.4f, glintSize, 2.5f, glintCol);
+        Sprite_DrawRect(leftGlintX + glintSize * 0.4f, glintY, 2.5f, glintSize, glintCol);
+        Sprite_DrawRect(rightGlintX, glintY + glintSize * 0.4f, glintSize, 2.5f, glintCol);
+        Sprite_DrawRect(rightGlintX + glintSize * 0.4f, glintY, 2.5f, glintSize, glintCol);
+
+        // Header indicator tag above critical strike
+        if (laserTexId != -1 && scale >= 1.05f)
+        {
+            if (isWeakpoint)
+            {
+                DrawMatrixString(centerX - 46.0f, startY - 15.0f, "* KRITIK VURUS *", 1.3f * scale, laserTexId, { 0.35f, 1.0f, 0.95f, alpha });
+            }
+            else
+            {
+                DrawMatrixString(centerX - 28.0f, startY - 15.0f, "* KRITIK! *", 1.3f * scale, laserTexId, { 1.0f, 0.85f, 0.20f, alpha });
+            }
+        }
+    }
+
+    // 3. Crisp Foreground Colored Digits
+    for (int i = 0; i < numDigits; i++)
+    {
+        int digitVal = str[i] - '0';
+        float drawX = startX + i * spacing;
+        Sprite_Draw(textureId, drawX, startY, digitSize, digitSize, digitVal * 64, 0, 64, 64, color);
+    }
+}
+
+Game::Game()
+    : m_hWnd(nullptr)
+{
+}
+
+bool Game::Initialize(HWND hWnd)
+{
+    m_hWnd = hWnd;
+
+    // Initialize graphic systems
+    Texture_Initialize(Direct3D_GetDevice(), Direct3D_GetContext());
+    if (!Sprite_Initialize())
+    {
+        return false;
+    }
+
+    // Load textures
+    m_texBackground = Texture_Load(L"asset/background.jpeg");
+    m_texSpaceship = Texture_Load(L"asset/spaceship.png");
+    m_texLaser = Texture_Load(L"asset/laser_no_bg.png");
+    m_texLaserHit = Texture_Load(L"asset/laser_effect_no_bg.png");
+    m_texAsteroid = Texture_Load(L"asset/astroid.png");
+    m_texBoss1 = Texture_Load(L"asset/boss1.png");
+    m_texBoss2 = Texture_Load(L"asset/boss2.png");
+    m_texBossProjectile = Texture_Load(L"asset/projectile.png");
+    m_texEnemy1 = Texture_Load(L"asset/enemy1.png");
+    m_texEnemy1Bullet = Texture_Load(L"asset/enemy1bullet.png");
+    m_texResources = Texture_Load(L"asset/resources_no_bg.png");
+    m_texNumber = Texture_Load(L"asset/number.png");
+    m_texHeart = Texture_Load(L"asset/hearth.png");
+    m_texVida = Texture_Load(L"asset/vida.png");
+    m_texDisli = Texture_Load(L"asset/disli.png");
+    m_texCpu = Texture_Load(L"asset/cpu.png");
+    m_texKey = Texture_Load(L"asset/key.png");
+    m_texChest = Texture_Load(L"asset/chest.png");
+    m_texTaret = Texture_Load(L"asset/taret.png");
+
+    m_texExplosions.resize(6);
+    m_texExplosions[0] = Texture_Load(L"asset/exploding_1_no_bg.png");
+    m_texExplosions[1] = Texture_Load(L"asset/exploding_2_no_bg.png");
+    m_texExplosions[2] = Texture_Load(L"asset/exploding_3_no_bg.png");
+    m_texExplosions[3] = Texture_Load(L"asset/exploding_4_no_bg.png");
+    m_texExplosions[4] = Texture_Load(L"asset/exploding_5_no_bg.png");
+    m_texExplosions[5] = Texture_Load(L"asset/exploding_6_no_bg.png");
+
+    // Load audio
+    m_soundShoot = LoadAudio("asset/shoot.wav");
+
+    // Initialize Upgrade Tree with real textures
+    m_upgradeTree.Initialize(m_texLaser, m_texNumber, m_texHeart, m_texResources, m_texSpaceship,
+                            m_texVida, m_texDisli, m_texCpu, m_texKey, m_soundShoot);
+    m_upgradeTree.ApplyStats(m_stats);
+    m_reishiCount = m_resources.reishi;
+
+    m_calamity.level = 1;
+    m_calamity.current = 0.0f;
+    m_calamity.required = 100.0f;
+    
+    ResetRun();
+
+    return true;
+}
+
+void Game::Finalize()
+{
+    if (m_soundShoot != -1)
+    {
+        UnloadAudio(m_soundShoot);
+        m_soundShoot = -1;
+    }
+
+    m_texExplosions.clear();
+    Texture_AllRelease();
+
+    Sprite_Finalize();
+    Texture_Finalize();
+}
+
+void Game::ResetRun()
+{
+    m_playerPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.5f);
+    m_playerRotation = 0.0f;
+    m_playerTargetRotation = 0.0f;
+    m_totalTime = 0.0f;
+    m_fuel = m_stats.maxFuel;
+    m_playerHealth = m_stats.maxHealth;
+    m_invincibleTimer = 0.0f;
+
+    m_cameraShakeTimer = 0.0f;
+    m_cameraShakeMaxDuration = 0.0f;
+    m_cameraShakeIntensity = 0.0f;
+    m_cameraOffset = { 0.0f, 0.0f };
+
+    m_asteroids.clear();
+    m_enemies.clear();
+    m_pickups.clear();
+    m_orbitingResources.clear();
+    m_chests.clear();
+    m_lasers.clear();
+    m_vfxs.clear();
+    m_enemyProjectiles.clear();
+    m_turretProjectiles.clear();
+    m_damagePopups.clear();
+    m_shockwaves.clear();
+
+    m_isChestModalActive = false;
+    m_activeChestIndex = -1;
+    m_chestSpawnTimer = 0.0f;
+    m_anomalousSignalTimer = 0.0f;
+    m_anomalousWarningDisplayTimer = 0.0f;
+    m_overheatDuration = 0.0f;
+    m_lastLaserTarget = nullptr;
+    m_straightMoveTimer = 0.0f;
+    m_retaliationTimer = 0.0f;
+    m_slingshotBoostTimer = 0.0f;
+
+    m_spawnTimer = 0.0f;
+    m_enemySpawnTimer = 0.0f;
+    m_laserFireCooldown = 0.0f;
+    m_laserDamageTickTimer = 0.0f;
+    m_runState = RunState::Active;
+    m_runStats = {};
+    m_superVacuumActive = false;
+    m_reishiCount = 0;
+
+    // Sector difficulty & spawn scaling
+    if (m_calamity.level <= 1)
+    {
+        m_maxAliveEnemies = 2; // Sector 1: Max 2 enemies simultaneously on screen
+        m_enemySpawnInterval = 4.2f;
+        m_maxAliveAsteroids = 14;
+        m_spawnInterval = 0.95f;
+    }
+    else if (m_calamity.level == 2)
+    {
+        m_maxAliveEnemies = 4;
+        m_enemySpawnInterval = 3.2f;
+        m_maxAliveAsteroids = 16;
+        m_spawnInterval = 0.85f;
+    }
+    else if (m_calamity.level == 3)
+    {
+        m_maxAliveEnemies = 6;
+        m_enemySpawnInterval = 2.5f;
+        m_maxAliveAsteroids = 18;
+        m_spawnInterval = 0.70f;
+    }
+    else if (m_calamity.level == 4)
+    {
+        m_maxAliveEnemies = 9;
+        m_enemySpawnInterval = 1.9f;
+        m_maxAliveAsteroids = 20;
+        m_spawnInterval = 0.60f;
+    }
+    else // Sector 5 (Afet Çekirdeği / Boss Stage)
+    {
+        m_maxAliveEnemies = 12;
+        m_enemySpawnInterval = 1.4f;
+        m_maxAliveAsteroids = 22;
+        m_spawnInterval = 0.50f;
+    }
+
+    // Reset Shield
+    m_currentShield = m_stats.maxShield;
+    m_shieldRechargeTimer = 8.0f;
+
+    // Reset Dash & Overcharge
+    m_isDashing = false;
+    m_dashTimer = 0.0f;
+    m_isOvercharged = false;
+    m_overchargeTimer = 0.0f;
+    m_shockwaveAutoTimer = 0.0f;
+
+    // Setup Stationary Turrets on the Sector Map
+    m_turrets.clear();
+    if (m_stats.turretCount == 1)
+    {
+        TurretInstance t;
+        t.position = { (float)SCREEN_WIDTH * 0.50f, (float)SCREEN_HEIGHT * 0.50f };
+        t.defenseRadius = m_stats.turretRange;
+        t.spec = m_stats.turretSpec;
+        t.fireCooldown = 0.0f;
+        m_turrets.push_back(t);
+    }
+    else if (m_stats.turretCount == 2)
+    {
+        TurretInstance t1;
+        t1.position = { (float)SCREEN_WIDTH * 0.32f, (float)SCREEN_HEIGHT * 0.50f };
+        t1.defenseRadius = m_stats.turretRange;
+        t1.spec = m_stats.turretSpec;
+        t1.fireCooldown = 0.0f;
+        m_turrets.push_back(t1);
+
+        TurretInstance t2;
+        t2.position = { (float)SCREEN_WIDTH * 0.68f, (float)SCREEN_HEIGHT * 0.50f };
+        t2.defenseRadius = m_stats.turretRange;
+        t2.spec = m_stats.turretSpec;
+        t2.fireCooldown = 0.0f;
+        m_turrets.push_back(t2);
+    }
+    else if (m_stats.turretCount >= 3)
+    {
+        TurretInstance t1;
+        t1.position = { (float)SCREEN_WIDTH * 0.50f, (float)SCREEN_HEIGHT * 0.30f };
+        t1.defenseRadius = m_stats.turretRange;
+        t1.spec = m_stats.turretSpec;
+        t1.fireCooldown = 0.0f;
+        m_turrets.push_back(t1);
+
+        TurretInstance t2;
+        t2.position = { (float)SCREEN_WIDTH * 0.28f, (float)SCREEN_HEIGHT * 0.70f };
+        t2.defenseRadius = m_stats.turretRange;
+        t2.spec = m_stats.turretSpec;
+        t2.fireCooldown = 0.0f;
+        m_turrets.push_back(t2);
+
+        TurretInstance t3;
+        t3.position = { (float)SCREEN_WIDTH * 0.72f, (float)SCREEN_HEIGHT * 0.70f };
+        t3.defenseRadius = m_stats.turretRange;
+        t3.spec = m_stats.turretSpec;
+        t3.fireCooldown = 0.0f;
+        m_turrets.push_back(t3);
+    }
+
+    // Setup Active Skill Slots
+    m_skillSlots[0] = { m_stats.skill1, 0.0f, 10.0f, "ENERJI DALGASI", "Q" };
+    m_skillSlots[1] = { m_stats.skill2, 0.0f, 15.0f, "ASIRI YUKLEME", "E" };
+    m_skillSlots[2] = { m_stats.skill3, 0.0f, 3.5f, "FAZ ATILMASI", "SHIFT" };
+
+    // Reset Calamity progress within the CURRENT Level
+    m_calamity.current = 0.0f;
+    m_calamity.required = 100.0f + (float)(m_calamity.level - 1) * 35.0f;
+    m_calamityFillDisplay = 0.0f;
+    m_bossTriggered = false;
+    m_bossWarningTimer = 0.0f;
+    m_bossVictory = false;
+
+    // Test Mode: Immediately spawn boss on start if configured in enemy_config.h
+    if (EnemyConfig::TEST_SPAWN_BOSS2_AT_START)
+    {
+        TriggerBossEncounter(EnemyConfig::TEST_BOSS_TYPE);
+    }
+}
+
+float Game::RandomFloat(float min, float max)
+{
+    if (std::isnan(min) || std::isnan(max) || min >= max) return min;
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> dis(min, max);
+    return dis(gen);
+}
+
+int Game::RandomInt(int min, int max)
+{
+    if (min >= max) return min;
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dis(min, max);
+    return dis(gen);
+}
+
+void Game::Update(float deltaTime)
+{
+    if (m_currentScene == GameScene::Gameplay)
+    {
+        if (InputKeyboard_IsTrigger(KK_U) || InputKeyboard_IsTrigger(KK_TAB))
+        {
+            m_currentScene = GameScene::UpgradePlaceholder;
+            return;
+        }
+        UpdateGameplay(deltaTime);
+    }
+    else if (m_currentScene == GameScene::UpgradePlaceholder)
+    {
+        UpdateUpgrade(deltaTime);
+    }
+}
+
+void Game::TriggerShockwave(const DirectX::XMFLOAT2& center, float maxRadius, float damage)
+{
+    ShockwaveInstance sw;
+    sw.center = center;
+    sw.currentRadius = 10.0f;
+    sw.maxRadius = maxRadius;
+    sw.lifetime = 0.0f;
+    sw.maxLifetime = 0.45f;
+    sw.damage = damage;
+    m_shockwaves.push_back(sw);
+
+    TriggerCameraShake(0.20f, 4.5f);
+
+    // Push enemies in radius & deal damage
+    for (auto& enemy : m_enemies)
+    {
+        if (enemy.destroyed) continue;
+        float dx = enemy.position.x - center.x;
+        float dy = enemy.position.y - center.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist <= maxRadius && dist > 0.001f)
+        {
+            enemy.hp -= damage;
+            enemy.flashTimer = 0.15f;
+            SpawnDamagePopup(enemy.position, (int)damage, true);
+            float push = (maxRadius - dist) + 40.0f;
+            enemy.position.x += (dx / dist) * push;
+            enemy.position.y += (dy / dist) * push;
+        }
+    }
+
+    // Safely destroy enemy projectiles within shockwave radius without modifying vector during iteration
+    for (auto& bullet : m_enemyProjectiles)
+    {
+        float dx = bullet.position.x - center.x;
+        float dy = bullet.position.y - center.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist <= maxRadius)
+        {
+            VFXInstance spark;
+            spark.position = bullet.position;
+            spark.lifetime = 0.0f;
+            spark.maxLifetime = 0.18f;
+            spark.scale = 0.25f;
+            spark.isSpriteSheet = true;
+            spark.frameCount = 8;
+            spark.frameDuration = 0.025f;
+            spark.textureId = m_texLaserHit;
+            m_vfxs.push_back(spark);
+
+            bullet.lifetime = 0.0f; // Safely mark for removal
+        }
+    }
+}
+
+void Game::UpdateGameplay(float deltaTime)
+{
+    // =========================================================================
+    // 📦 ANCIENT CHEST PAUSE MODAL INTERACTION (GAME PAUSED)
+    // =========================================================================
+    if (m_isChestModalActive)
+    {
+        int mouseX = InputMouse_GetX();
+        int mouseY = InputMouse_GetY();
+        bool leftClicked = InputMouse_IsTrigger(MOUSE_BUTTON_LEFT);
+
+        // Modal Button coordinates
+        float cardW = 540.0f;
+        float cardH = 340.0f;
+        float cardX = (float)SCREEN_WIDTH * 0.5f - cardW * 0.5f;
+        float cardY = (float)SCREEN_HEIGHT * 0.5f - cardH * 0.5f;
+
+        float btnW = 220.0f;
+        float btnH = 50.0f;
+        float btnY = cardY + cardH - 75.0f;
+        float btn1X = cardX + 35.0f;
+        float btn2X = cardX + cardW - btnW - 35.0f;
+
+        bool hoverBtn1 = (mouseX >= btn1X && mouseX <= btn1X + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+        bool hoverBtn2 = (mouseX >= btn2X && mouseX <= btn2X + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
+
+        // Option 1: Open with 1 Key [E] or Left Click
+        if ((InputKeyboard_IsTrigger(KK_E) || (leftClicked && hoverBtn1)) && m_activeChestIndex >= 0 && m_activeChestIndex < (int)m_chests.size())
+        {
+            if (m_resources.key >= 1)
+            {
+                m_resources.key -= 1;
+                auto chestPos = m_chests[m_activeChestIndex].position;
+
+                // Big Ganimet Explosion! (+3 CPU, +5 Dişli, +10 Vida, +120 Reishi)
+                for (int k = 0; k < 25; ++k)
+                {
+                    ResourcePickup r;
+                    r.position = chestPos;
+                    float angle = RandomFloat(0.0f, 2.0f * PI);
+                    float spd = RandomFloat(120.0f, 260.0f);
+                    r.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                    r.scale = 0.09f;
+                    r.type = PickupType::Reishi;
+                    r.amount = 5;
+                    m_pickups.push_back(r);
+                }
+                for (int k = 0; k < 10; ++k)
+                {
+                    ResourcePickup v;
+                    v.position = chestPos;
+                    float angle = RandomFloat(0.0f, 2.0f * PI);
+                    float spd = RandomFloat(100.0f, 220.0f);
+                    v.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                    v.scale = 0.09f;
+                    v.type = PickupType::Vida;
+                    v.amount = 1;
+                    m_pickups.push_back(v);
+                }
+                for (int k = 0; k < 5; ++k)
+                {
+                    ResourcePickup d;
+                    d.position = chestPos;
+                    float angle = RandomFloat(0.0f, 2.0f * PI);
+                    float spd = RandomFloat(90.0f, 200.0f);
+                    d.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                    d.scale = 0.09f;
+                    d.type = PickupType::Disli;
+                    d.amount = 1;
+                    m_pickups.push_back(d);
+                }
+                for (int k = 0; k < 3; ++k)
+                {
+                    ResourcePickup c;
+                    c.position = chestPos;
+                    float angle = RandomFloat(0.0f, 2.0f * PI);
+                    float spd = RandomFloat(80.0f, 180.0f);
+                    c.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                    c.scale = 0.09f;
+                    c.type = PickupType::Cpu;
+                    c.amount = 1;
+                    m_pickups.push_back(c);
+                }
+
+                TriggerCameraShake(0.55f, 14.0f);
+                TriggerShockwave(chestPos, 220.0f, 0.0f);
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+
+                m_chests.erase(m_chests.begin() + m_activeChestIndex);
+                m_isChestModalActive = false;
+                m_activeChestIndex = -1;
+            }
+        }
+
+        // Option 2: Decline & Save Key [ESC] or Left Click
+        if (InputKeyboard_IsTrigger(KK_ESCAPE) || (leftClicked && hoverBtn2))
+        {
+            if (m_activeChestIndex >= 0 && m_activeChestIndex < (int)m_chests.size())
+            {
+                // Push chest away so it doesn't immediately retrigger
+                m_chests[m_activeChestIndex].position.x += 100.0f;
+            }
+            m_isChestModalActive = false;
+            m_activeChestIndex = -1;
+        }
+
+        return; // Complete Pause while modal is open!
+    }
+
+    if (m_runState == RunState::Active)
+    {
+        // Fuel Drain
+        if (!m_stats.zeroPointReactor)
+        {
+            m_fuel -= m_stats.fuelDrainRate * deltaTime;
+        }
+        else
+        {
+            m_fuel -= (m_stats.fuelDrainRate * 0.40f) * deltaTime;
+        }
+
+        if (m_fuel <= 0.0f)
+        {
+            m_fuel = 0.0f;
+            m_runState = RunState::RunEnded;
+            m_superVacuumActive = true;
+            m_endRunTimer = 7.0f;
+        }
+
+        // Calamity progression over time
+        m_calamity.current += 1.2f * deltaTime;
+        if (m_calamity.current >= m_calamity.required)
+        {
+            m_calamity.current = m_calamity.required;
+            if (!m_bossTriggered)
+            {
+                TriggerBossEncounter(m_calamity.level >= 2 ? 2 : 1);
+            }
+        }
+
+        float targetCalamityFill = (m_calamity.required > 0.0f) ? std::clamp(m_calamity.current / m_calamity.required, 0.0f, 1.0f) : 0.0f;
+        m_calamityFillDisplay += (targetCalamityFill - m_calamityFillDisplay) * 10.0f * deltaTime;
+
+        // Timer decays
+        if (m_anomalousWarningDisplayTimer > 0.0f) m_anomalousWarningDisplayTimer -= deltaTime;
+        if (m_retaliationTimer > 0.0f) m_retaliationTimer -= deltaTime;
+
+        // ==========================================
+        // ACTIVE SKILLS INPUT & TRIGGERING
+        // ==========================================
+        // Skill 1: EMP Energy Wave [Q]
+        if (InputKeyboard_IsTrigger(KK_Q) && m_skillSlots[0].type == ActiveSkillType::EmpWave && m_skillSlots[0].cooldownTimer <= 0.0f)
+        {
+            m_skillSlots[0].cooldownTimer = m_skillSlots[0].maxCooldown;
+            TriggerShockwave(m_playerPos, 450.0f, 75.0f);
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Skill 2: Hyper Overcharge [E]
+        if (InputKeyboard_IsTrigger(KK_E) && m_skillSlots[1].type == ActiveSkillType::Overcharge && m_skillSlots[1].cooldownTimer <= 0.0f)
+        {
+            m_skillSlots[1].cooldownTimer = m_skillSlots[1].maxCooldown;
+            m_isOvercharged = true;
+            m_overchargeTimer = 4.0f;
+            TriggerCameraShake(0.25f, 5.0f);
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Skill 3: Phase Dash [SPACE]
+        if (InputKeyboard_IsTrigger(KK_SPACE) &&
+            m_skillSlots[2].type == ActiveSkillType::PhaseDash && m_skillSlots[2].cooldownTimer <= 0.0f)
+        {
+            m_skillSlots[2].cooldownTimer = m_stats.dashCooldown;
+            m_isDashing = true;
+            m_dashTimer = 0.40f;
+            m_invincibleTimer = 0.40f; // i-frames
+            m_dashDir = { sinf(m_playerRotation), -cosf(m_playerRotation) };
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Skill cooldown decay
+        for (auto& s : m_skillSlots)
+        {
+            if (s.cooldownTimer > 0.0f) s.cooldownTimer -= deltaTime;
+        }
+
+        // Boss Warning Banner Timer decay (disappears after 3.5 seconds)
+        if (m_bossWarningTimer > 0.0f)
+        {
+            m_bossWarningTimer -= deltaTime;
+        }
+
+        // Anomalous Warning Banner Timer decay
+        if (m_anomalousWarningDisplayTimer > 0.0f)
+        {
+            m_anomalousWarningDisplayTimer -= deltaTime;
+        }
+
+        // Overcharge timer
+        if (m_isOvercharged)
+        {
+            m_overchargeTimer -= deltaTime;
+            if (m_overchargeTimer <= 0.0f) m_isOvercharged = false;
+        }
+
+        // Shield Recharge
+        if (m_stats.shieldBubbleUnlocked && m_currentShield < m_stats.maxShield)
+        {
+            m_shieldRechargeTimer -= deltaTime;
+            if (m_shieldRechargeTimer <= 0.0f)
+            {
+                m_currentShield = m_stats.maxShield;
+                m_shieldRechargeTimer = 8.0f;
+            }
+        }
+
+        // Auto Shockwave
+        if (m_stats.shockwaveUnlocked)
+        {
+            m_shockwaveAutoTimer += deltaTime;
+            if (m_shockwaveAutoTimer >= m_stats.shockwaveInterval)
+            {
+                m_shockwaveAutoTimer = 0.0f;
+                TriggerShockwave(m_playerPos, m_stats.shockwaveRadius, m_stats.shockwaveDamage);
+            }
+        }
+
+        // Tank Controls: A/D rotate ship, W/S thrust forward/backward
+        float rotationSpeed = 3.5f;
+        if (InputKeyboard_IsPress(KK_A))
+        {
+            m_playerRotation -= rotationSpeed * deltaTime;
+        }
+        if (InputKeyboard_IsPress(KK_D))
+        {
+            m_playerRotation += rotationSpeed * deltaTime;
+        }
+
+        if (m_playerRotation > PI) m_playerRotation -= 2.0f * PI;
+        if (m_playerRotation < -PI) m_playerRotation += 2.0f * PI;
+
+        DirectX::XMFLOAT2 forward{ sinf(m_playerRotation), -cosf(m_playerRotation) };
+        float moveSpeed = m_stats.moveSpeed;
+
+        if (m_isDashing)
+        {
+            m_dashTimer -= deltaTime;
+            m_playerPos.x += m_dashDir.x * 680.0f * deltaTime;
+            m_playerPos.y += m_dashDir.y * 680.0f * deltaTime;
+
+            // Dash Specialization Behaviors:
+            if (m_stats.dashType == DashType::Impact)
+            {
+                // Impact Dash: 120 kinetic smash damage
+                for (auto& enemy : m_enemies)
+                {
+                    if (enemy.destroyed) continue;
+                    float dx = enemy.position.x - m_playerPos.x;
+                    float dy = enemy.position.y - m_playerPos.y;
+                    if (sqrtf(dx * dx + dy * dy) < m_playerHitboxRadius + enemy.radius + 15.0f)
+                    {
+                        enemy.hp -= 120.0f;
+                        enemy.flashTimer = 0.08f;
+                        SpawnDamagePopup(enemy.position, 120, true);
+                        TriggerCameraShake(0.35f, 10.0f);
+                        if (enemy.hp <= 0.0f) enemy.destroyed = true;
+                    }
+                }
+                for (auto& ast : m_asteroids)
+                {
+                    if (ast.destroyed) continue;
+                    float dx = ast.position.x - m_playerPos.x;
+                    float dy = ast.position.y - m_playerPos.y;
+                    if (sqrtf(dx * dx + dy * dy) < m_playerHitboxRadius + ast.radius + 15.0f)
+                    {
+                        ast.hp -= 120.0f;
+                        ast.flashTimer = 0.08f;
+                        SpawnDamagePopup(ast.position, 120, true);
+                        TriggerCameraShake(0.35f, 10.0f);
+                        if (ast.hp <= 0.0f) ast.destroyed = true;
+                    }
+                }
+            }
+            else if (m_stats.dashType == DashType::Mining)
+            {
+                // Mining Dash: Instantly crush small asteroids
+                for (auto& ast : m_asteroids)
+                {
+                    if (ast.destroyed || ast.isBoss) continue;
+                    float dx = ast.position.x - m_playerPos.x;
+                    float dy = ast.position.y - m_playerPos.y;
+                    if (sqrtf(dx * dx + dy * dy) < m_playerHitboxRadius + ast.radius + 15.0f)
+                    {
+                        ast.hp = 0.0f;
+                        ast.destroyed = true;
+                        TriggerCameraShake(0.20f, 6.0f);
+                    }
+                }
+            }
+
+            if (m_dashTimer <= 0.0f) m_isDashing = false;
+        }
+        else
+        {
+            if (InputKeyboard_IsPress(KK_W))
+            {
+                m_playerPos.x += forward.x * moveSpeed * deltaTime;
+                m_playerPos.y += forward.y * moveSpeed * deltaTime;
+            }
+            if (InputKeyboard_IsPress(KK_S))
+            {
+                m_playerPos.x -= forward.x * moveSpeed * 0.6f * deltaTime;
+                m_playerPos.y -= forward.y * moveSpeed * 0.6f * deltaTime;
+            }
+        }
+
+        m_playerPos.x = std::clamp(m_playerPos.x, 50.0f, (float)SCREEN_WIDTH - 50.0f);
+        m_playerPos.y = std::clamp(m_playerPos.y, 50.0f, (float)SCREEN_HEIGHT - 50.0f);
+
+        if (m_invincibleTimer > 0.0f)
+        {
+            m_invincibleTimer -= deltaTime;
+        }
+
+        // Asteroid & Enemy Spawning
+        SpawnAsteroids(deltaTime);
+        SpawnEnemies(deltaTime);
+
+        // Continuous mining laser firing
+        TargetAndFireLasers(deltaTime);
+
+        // Autonomous Turrets Update
+        UpdateTurrets(deltaTime);
+
+        // Update Chests
+        for (size_t i = 0; i < m_chests.size(); ++i)
+        {
+            auto& chest = m_chests[i];
+            chest.position.x += chest.velocity.x * deltaTime;
+            chest.position.y += chest.velocity.y * deltaTime;
+            chest.rotation += chest.rotationSpeed * deltaTime;
+
+            float pDx = m_playerPos.x - chest.position.x;
+            float pDy = m_playerPos.y - chest.position.y;
+            float pDist = sqrtf(pDx * pDx + pDy * pDy);
+
+            if (pDist < m_playerHitboxRadius + chest.radius)
+            {
+                m_isChestModalActive = true;
+                m_activeChestIndex = (int)i;
+                break;
+            }
+        }
+
+        // Update Enemies
+        for (auto it = m_enemies.begin(); it != m_enemies.end(); )
+        {
+            if (it->destroyed)
+            {
+                // Enemy death drops: Reishi + chance of Vida
+                int dropNum = RandomInt(2, 4);
+                for (int k = 0; k < dropNum; ++k)
+                {
+                    ResourcePickup crystal;
+                    crystal.position = it->position;
+                    float angle = RandomFloat(0.0f, 2.0f * PI);
+                    float speed = RandomFloat(100.0f, 200.0f);
+                    crystal.velocity.x = cosf(angle) * speed;
+                    crystal.velocity.y = sinf(angle) * speed;
+                    crystal.scale = RandomFloat(0.07f, 0.09f);
+                    crystal.type = PickupType::Reishi;
+                    crystal.amount = 1;
+                    m_pickups.push_back(crystal);
+                }
+
+                if (RandomFloat(0.0f, 1.0f) < 0.60f)
+                {
+                    ResourcePickup bolt;
+                    bolt.position = it->position;
+                    float angle = RandomFloat(0.0f, 2.0f * PI);
+                    float speed = RandomFloat(80.0f, 160.0f);
+                    bolt.velocity.x = cosf(angle) * speed;
+                    bolt.velocity.y = sinf(angle) * speed;
+                    bolt.scale = 0.08f;
+                    bolt.type = PickupType::Vida;
+                    bolt.amount = 1;
+                    m_pickups.push_back(bolt);
+                }
+
+                // Advance Calamity / Boss Meter by killing enemies
+                m_calamity.current += 7.0f;
+                m_runStats.enemiesKilled++;
+
+                // Zero Point Reactor fuel refill
+                if (m_stats.zeroPointReactor)
+                {
+                    m_fuel = std::min(m_stats.maxFuel, m_fuel + (m_stats.activeCapstone == 3 ? 10.0f : 4.0f));
+                }
+
+                it = m_enemies.erase(it);
+                continue;
+            }
+
+            if (it->flashTimer > 0.0f)
+            {
+                it->flashTimer -= deltaTime;
+            }
+
+            it->rotation += it->rotationSpeed * deltaTime;
+            if (it->rotation > 2.0f * PI) it->rotation -= 2.0f * PI;
+            if (it->rotation < -2.0f * PI) it->rotation += 2.0f * PI;
+
+            float dx = it->targetPosition.x - it->position.x;
+            float dy = it->targetPosition.y - it->position.y;
+            float dist = sqrt(dx * dx + dy * dy);
+
+            if (dist > 15.0f)
+            {
+                float moveSpd = 85.0f;
+                it->position.x += (dx / dist) * moveSpd * deltaTime;
+                it->position.y += (dy / dist) * moveSpd * deltaTime;
+            }
+
+            it->changeTargetTimer -= deltaTime;
+            if (it->changeTargetTimer <= 0.0f)
+            {
+                it->changeTargetTimer = RandomFloat(3.0f, 5.0f);
+                it->targetPosition.x = RandomFloat(120.0f, (float)SCREEN_WIDTH - 120.0f);
+                it->targetPosition.y = RandomFloat(100.0f, (float)SCREEN_HEIGHT - 100.0f);
+            }
+
+            it->shootTimer -= deltaTime;
+            if (it->shootTimer <= 0.0f)
+            {
+                it->shootTimer = it->shootInterval;
+                float bSpeed = 125.0f + (float)(m_calamity.level - 1) * 18.0f;
+
+                for (int k = 0; k < 4; k++)
+                {
+                    float angle = it->rotation + (float)k * (PI * 0.5f);
+                    EnemyProjectile bullet;
+                    bullet.position = it->position;
+                    bullet.velocity.x = cosf(angle) * bSpeed;
+                    bullet.velocity.y = sinf(angle) * bSpeed;
+                    bullet.radius = 11.0f;
+                    bullet.damage = 1;
+                    bullet.lifetime = 4.5f;
+                    m_enemyProjectiles.push_back(bullet);
+                }
+            }
+
+            float pDx = m_playerPos.x - it->position.x;
+            float pDy = m_playerPos.y - it->position.y;
+            float pDist = sqrt(pDx * pDx + pDy * pDy);
+            float minDist = m_playerHitboxRadius + it->radius;
+
+            if (pDist < minDist && pDist > 0.001f)
+            {
+                DamagePlayer(1);
+
+                float push = (minDist - pDist) + 8.0f;
+                m_playerPos.x += (pDx / pDist) * push;
+                m_playerPos.y += (pDy / pDist) * push;
+                m_playerPos.x = std::clamp(m_playerPos.x, 50.0f, (float)SCREEN_WIDTH - 50.0f);
+                m_playerPos.y = std::clamp(m_playerPos.y, 50.0f, (float)SCREEN_HEIGHT - 50.0f);
+            }
+
+            ++it;
+        }
+
+        // Update Enemy Projectiles
+        for (auto it = m_enemyProjectiles.begin(); it != m_enemyProjectiles.end(); )
+        {
+            it->lifetime -= deltaTime;
+            if (it->lifetime <= 0.0f)
+            {
+                it = m_enemyProjectiles.erase(it);
+                continue;
+            }
+
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+
+            // If bullet is reflected, hit enemies!
+            if (it->isReflected)
+            {
+                for (auto& e : m_enemies)
+                {
+                    if (e.destroyed) continue;
+                    float edx = e.position.x - it->position.x;
+                    float edy = e.position.y - it->position.y;
+                    if (sqrtf(edx * edx + edy * edy) < e.radius + it->radius)
+                    {
+                        e.hp -= 40.0f;
+                        e.flashTimer = 0.08f;
+                        SpawnDamagePopup(e.position, 40, true);
+                        if (e.hp <= 0.0f) e.destroyed = true;
+                        it->lifetime = 0.0f;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                float pDx = m_playerPos.x - it->position.x;
+                float pDy = m_playerPos.y - it->position.y;
+                float pDist = sqrt(pDx * pDx + pDy * pDy);
+                float minDist = m_playerHitboxRadius + it->radius;
+
+                if (pDist < minDist)
+                {
+                    // Reflective Shield
+                    if (m_stats.reflectiveShield && m_currentShield > 0)
+                    {
+                        it->isReflected = true;
+                        it->velocity.x = -it->velocity.x * 1.6f;
+                        it->velocity.y = -it->velocity.y * 1.6f;
+                        it->lifetime = 3.0f;
+                        TriggerShockwave(it->position, 60.0f, 0.0f);
+                        continue;
+                    }
+                    else
+                    {
+                        DamagePlayer(it->damage);
+                        it = m_enemyProjectiles.erase(it);
+                        continue;
+                    }
+                }
+            }
+
+            if (it->position.x < -50.0f || it->position.x > SCREEN_WIDTH + 50.0f ||
+                it->position.y < -50.0f || it->position.y > SCREEN_HEIGHT + 50.0f)
+            {
+                it = m_enemyProjectiles.erase(it);
+                continue;
+            }
+
+            ++it;
+        }
+
+        // Update Asteroids & Bosses
+        for (auto it = m_asteroids.begin(); it != m_asteroids.end(); )
+        {
+            if (it->destroyed)
+            {
+                if (it->isBoss)
+                {
+                    // Boss Victory! Advance Sector & Drop Balanced Resources
+                    m_bossVictory = true;
+                    m_runState = RunState::RunEnded;
+                    m_endRunTimer = 7.5f;
+                    m_superVacuumActive = true;
+                    m_runStats.enemiesKilled++;
+                    TriggerCameraShake(0.85f, 22.0f);
+
+                    // Unlock next sector on the map!
+                    int defeatedLevel = (it->bossType == 2) ? 2 : m_calamity.level;
+                    m_upgradeTree.UnlockNextSector(defeatedLevel);
+                    m_upgradeTree.SetCurrentSectorIndex(std::min(5, defeatedLevel + 1));
+
+                    int reishiDropCount = (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
+                    int reishiPerDrop   = (it->bossType == 2) ? EnemyConfig::Boss2.reishiPerDrop   : EnemyConfig::Boss1.reishiPerDrop;
+                    int vidaDropCount   = (it->bossType == 2) ? EnemyConfig::Boss2.vidaDropCount   : EnemyConfig::Boss1.vidaDropCount;
+                    int disliDropCount  = (it->bossType == 2) ? EnemyConfig::Boss2.disliDropCount  : EnemyConfig::Boss1.disliDropCount;
+                    int cpuDropCount    = (it->bossType == 2) ? EnemyConfig::Boss2.cpuDropCount    : EnemyConfig::Boss1.cpuDropCount;
+                    int keyDropCount    = (it->bossType == 2) ? EnemyConfig::Boss2.keyDropCount    : EnemyConfig::Boss1.keyDropCount;
+
+                    // 1. Reishi Crystals
+                    for (int k = 0; k < reishiDropCount; ++k)
+                    {
+                        ResourcePickup r;
+                        r.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float spd = RandomFloat(120.0f, 280.0f);
+                        r.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                        r.scale = 0.09f;
+                        r.type = PickupType::Reishi;
+                        r.amount = reishiPerDrop;
+                        m_pickups.push_back(r);
+                    }
+                    // 2. Vidas (vida.png)
+                    for (int k = 0; k < vidaDropCount; ++k)
+                    {
+                        ResourcePickup v;
+                        v.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float spd = RandomFloat(100.0f, 240.0f);
+                        v.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                        v.scale = 0.09f;
+                        v.type = PickupType::Vida;
+                        v.amount = 1;
+                        m_pickups.push_back(v);
+                    }
+                    // 3. Dişlis (disli.png)
+                    for (int k = 0; k < disliDropCount; ++k)
+                    {
+                        ResourcePickup d;
+                        d.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float spd = RandomFloat(90.0f, 220.0f);
+                        d.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                        d.scale = 0.09f;
+                        d.type = PickupType::Disli;
+                        d.amount = 1;
+                        m_pickups.push_back(d);
+                    }
+                    // 4. Quantum CPUs (cpu.png)
+                    for (int k = 0; k < cpuDropCount; ++k)
+                    {
+                        ResourcePickup c;
+                        c.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float spd = RandomFloat(80.0f, 200.0f);
+                        c.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                        c.scale = 0.09f;
+                        c.type = PickupType::Cpu;
+                        c.amount = 1;
+                        m_pickups.push_back(c);
+                    }
+                    // 5. Sector Key (key.png)
+                    for (int k = 0; k < keyDropCount; ++k)
+                    {
+                        ResourcePickup ky;
+                        ky.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float spd = RandomFloat(60.0f, 160.0f);
+                        ky.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                        ky.scale = 0.10f;
+                        ky.type = PickupType::Key;
+                        ky.amount = 1;
+                        m_pickups.push_back(ky);
+                    }
+                }
+                else
+                {
+                    // Anomalous asteroid drops guaranteed Key!
+                    if (it->isAnomalousSignal)
+                    {
+                        ResourcePickup ky;
+                        ky.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float spd = RandomFloat(80.0f, 160.0f);
+                        ky.velocity = { cosf(angle) * spd, sinf(angle) * spd };
+                        ky.scale = 0.11f;
+                        ky.type = PickupType::Key;
+                        ky.amount = 1;
+                        m_pickups.push_back(ky);
+                    }
+
+                    // Regular asteroid drops: Reishi + chance of Vida/Dişli
+                    bool isJackpot = (m_stats.jackpotChance > 0.0f && RandomFloat(0.0f, 1.0f) < m_stats.jackpotChance);
+                    int dropNum = isJackpot ? (it->resourceAmount * 4 + 8) : it->resourceAmount;
+
+                    if (isJackpot)
+                    {
+                        TriggerCameraShake(0.35f, 8.0f);
+                        TriggerShockwave(it->position, 150.0f, 0.0f);
+                        SpawnDamagePopup(it->position, 777, true, false, false);
+                    }
+
+                    // 1. Reishi drops
+                    for (int k = 0; k < dropNum; ++k)
+                    {
+                        ResourcePickup crystal;
+                        crystal.position = it->position;
+                        float angle = RandomFloat(0.0f, 2.0f * PI);
+                        float speed = RandomFloat(100.0f, isJackpot ? 260.0f : 200.0f);
+                        crystal.velocity.x = cosf(angle) * speed;
+                        crystal.velocity.y = sinf(angle) * speed;
+                        crystal.scale = isJackpot ? 0.10f : RandomFloat(0.07f, 0.09f);
+                        crystal.type = PickupType::Reishi;
+                        crystal.amount = isJackpot ? 2 : 1;
+                        m_pickups.push_back(crystal);
+                    }
+
+                    // 2. Rare Materials (Vida, Dişli, CPU)
+                    float rareRoll = RandomFloat(0.0f, 1.0f);
+                    float vidaThreshold = 0.25f * (1.0f + m_stats.vidaBonus);
+                    float disliThreshold = 0.15f * (1.0f + m_stats.disliBonus);
+                    float cpuThreshold = 0.06f * (1.0f + m_stats.cpuBonus);
+
+                    if (isJackpot)
+                    {
+                        // Guaranteed loot fiesta on jackpot!
+                        for (int k = 0; k < 2; ++k)
+                        {
+                            ResourcePickup v; v.position = it->position;
+                            float a = RandomFloat(0.0f, 2.0f * PI); float sp = RandomFloat(80.0f, 180.0f);
+                            v.velocity = { cosf(a) * sp, sinf(a) * sp }; v.scale = 0.085f;
+                            v.type = PickupType::Vida; v.amount = 1; m_pickups.push_back(v);
+                        }
+                        ResourcePickup d; d.position = it->position;
+                        float a = RandomFloat(0.0f, 2.0f * PI); float sp = RandomFloat(80.0f, 180.0f);
+                        d.velocity = { cosf(a) * sp, sinf(a) * sp }; d.scale = 0.085f;
+                        d.type = PickupType::Disli; d.amount = 1; m_pickups.push_back(d);
+                    }
+                    else if (rareRoll < cpuThreshold)
+                    {
+                        ResourcePickup item; item.position = it->position;
+                        float a = RandomFloat(0.0f, 2.0f * PI); float sp = RandomFloat(70.0f, 150.0f);
+                        item.velocity = { cosf(a) * sp, sinf(a) * sp }; item.scale = 0.085f;
+                        item.type = PickupType::Cpu; item.amount = 1; m_pickups.push_back(item);
+                    }
+                    else if (rareRoll < (cpuThreshold + disliThreshold))
+                    {
+                        ResourcePickup item; item.position = it->position;
+                        float a = RandomFloat(0.0f, 2.0f * PI); float sp = RandomFloat(70.0f, 150.0f);
+                        item.velocity = { cosf(a) * sp, sinf(a) * sp }; item.scale = 0.085f;
+                        item.type = PickupType::Disli; item.amount = 1; m_pickups.push_back(item);
+                    }
+                    else if (rareRoll < (cpuThreshold + disliThreshold + vidaThreshold))
+                    {
+                        ResourcePickup item; item.position = it->position;
+                        float a = RandomFloat(0.0f, 2.0f * PI); float sp = RandomFloat(70.0f, 150.0f);
+                        item.velocity = { cosf(a) * sp, sinf(a) * sp }; item.scale = 0.085f;
+                        item.type = PickupType::Vida; item.amount = 1; m_pickups.push_back(item);
+                    }
+
+                    // 3. Chain Fracture: crack nearby asteroids!
+                    if (m_stats.chainFracture)
+                    {
+                        for (auto& otherAst : m_asteroids)
+                        {
+                            if (&otherAst == &(*it) || otherAst.destroyed || otherAst.isBoss) continue;
+                            float cdx = otherAst.position.x - it->position.x;
+                            float cdy = otherAst.position.y - it->position.y;
+                            float cdist = sqrtf(cdx * cdx + cdy * cdy);
+                            if (cdist <= 150.0f)
+                            {
+                                otherAst.hp -= 45.0f;
+                                otherAst.flashTimer = 0.10f;
+                                SpawnDamagePopup(otherAst.position, 45, false, false, true);
+                                if (otherAst.hp <= 0.0f) otherAst.destroyed = true;
+                            }
+                        }
+                    }
+
+                    // Advance Calamity / Boss Meter by mining asteroids
+                    m_calamity.current += 3.5f;
+                    m_runStats.asteroidsMined++;
+
+                    // Zero Point Reactor fuel refill
+                    if (m_stats.zeroPointReactor)
+                    {
+                        m_fuel = std::min(m_stats.maxFuel, m_fuel + (m_stats.activeCapstone == 3 ? 10.0f : 4.0f));
+                    }
+                }
+
+                it = m_asteroids.erase(it);
+                continue;
+            }
+
+            if (it->flashTimer > 0.0f)
+            {
+                it->flashTimer -= deltaTime;
+            }
+
+            // Boss 2 Custom AI & Attack Phase Logic
+            if (it->isBoss && it->bossType == 2)
+            {
+                if (it->bossPhase == BossPhase::Enter)
+                {
+                    it->position.y += it->velocity.y * deltaTime;
+                    it->rotation += it->rotationSpeed * deltaTime;
+                    if (it->position.y >= it->bossTargetPos.y)
+                    {
+                        it->position.y = it->bossTargetPos.y;
+                        it->bossPhase = BossPhase::Patrol;
+                        it->bossPhaseTimer = EnemyConfig::Boss2.patrolDuration;
+                        it->velocity = { 0.0f, 0.0f };
+                    }
+                }
+                else if (it->bossPhase == BossPhase::Patrol)
+                {
+                    it->rotation += EnemyConfig::Boss2.normalRotationSpeed * deltaTime;
+                    float bdx = it->bossTargetPos.x - it->position.x;
+                    float bdy = it->bossTargetPos.y - it->position.y;
+                    float bdist = sqrtf(bdx * bdx + bdy * bdy);
+                    if (bdist > 15.0f)
+                    {
+                        it->position.x += (bdx / bdist) * EnemyConfig::Boss2.moveSpeed * deltaTime;
+                        it->position.y += (bdy / bdist) * EnemyConfig::Boss2.moveSpeed * deltaTime;
+                    }
+                    else
+                    {
+                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), RandomFloat(160.0f, 320.0f) };
+                    }
+
+                    // Periodic 4-way pulse shots
+                    it->bossShootTimer -= deltaTime;
+                    if (it->bossShootTimer <= 0.0f)
+                    {
+                        it->bossShootTimer = EnemyConfig::Boss2.normalShootInterval;
+                        for (int k = 0; k < 4; ++k)
+                        {
+                            float ang = it->rotation + (float)k * (PI * 0.5f);
+                            EnemyProjectile bp;
+                            bp.position = it->position;
+                            bp.velocity.x = cosf(ang) * EnemyConfig::Boss2.normalBulletSpeed;
+                            bp.velocity.y = sinf(ang) * EnemyConfig::Boss2.normalBulletSpeed;
+                            bp.radius = 12.0f;
+                            bp.damage = EnemyConfig::Boss2.normalBulletDamage;
+                            bp.lifetime = 4.5f;
+                            bp.isBossSpiral = true;
+                            m_enemyProjectiles.push_back(bp);
+                        }
+                        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    }
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::AlarmWarning;
+                        it->bossPhaseTimer = EnemyConfig::Boss2.alarmWarningDuration;
+                    }
+                }
+                else if (it->bossPhase == BossPhase::AlarmWarning)
+                {
+                    // Stationary & warning alarm charge
+                    it->rotation += (EnemyConfig::Boss2.normalRotationSpeed * 0.5f) * deltaTime;
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::SpiralAttack;
+                        it->bossPhaseTimer = EnemyConfig::Boss2.spiralAttackDuration;
+                        it->bossSpiralFireTimer = 0.0f;
+                        TriggerCameraShake(0.20f, 5.0f);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::SpiralAttack)
+                {
+                    // Rapid spinning & 4-way spiral projectile barrage!
+                    it->rotation += EnemyConfig::Boss2.spiralRotationSpeed * deltaTime;
+                    if (it->rotation > 2.0f * PI) it->rotation -= 2.0f * PI;
+
+                    it->bossSpiralFireTimer -= deltaTime;
+                    if (it->bossSpiralFireTimer <= 0.0f)
+                    {
+                        it->bossSpiralFireTimer = EnemyConfig::Boss2.spiralFireRate;
+                        for (int k = 0; k < 4; ++k)
+                        {
+                            float ang = it->rotation + (float)k * (PI * 0.5f);
+                            EnemyProjectile bp;
+                            bp.position.x = it->position.x + cosf(ang) * (it->radius * 0.70f);
+                            bp.position.y = it->position.y + sinf(ang) * (it->radius * 0.70f);
+                            bp.velocity.x = cosf(ang) * EnemyConfig::Boss2.spiralBulletSpeed;
+                            bp.velocity.y = sinf(ang) * EnemyConfig::Boss2.spiralBulletSpeed;
+                            bp.radius = EnemyConfig::Boss2.spiralBulletRadius;
+                            bp.damage = EnemyConfig::Boss2.spiralBulletDamage;
+                            bp.lifetime = EnemyConfig::Boss2.spiralBulletLifetime;
+                            bp.isBossSpiral = true;
+                            m_enemyProjectiles.push_back(bp);
+                        }
+                        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    }
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::Cooldown;
+                        it->bossPhaseTimer = EnemyConfig::Boss2.spiralCooldown;
+                    }
+                }
+                else if (it->bossPhase == BossPhase::Cooldown)
+                {
+                    it->rotation += EnemyConfig::Boss2.normalRotationSpeed * deltaTime;
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::Patrol;
+                        it->bossPhaseTimer = EnemyConfig::Boss2.patrolDuration;
+                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), RandomFloat(160.0f, 320.0f) };
+                    }
+                }
+            }
+            else
+            {
+                // Normal Asteroid or Boss 1 movement
+                it->position.x += it->velocity.x * deltaTime;
+                it->position.y += it->velocity.y * deltaTime;
+                it->rotation += it->rotationSpeed * deltaTime;
+            }
+
+            // Player vs Asteroid / Boss Collision
+            float pDx = m_playerPos.x - it->position.x;
+            float pDy = m_playerPos.y - it->position.y;
+            float pDist = sqrt(pDx * pDx + pDy * pDy);
+            float minDist = m_playerHitboxRadius + it->radius;
+
+            if (pDist < minDist && pDist > 0.001f)
+            {
+                DamagePlayer(1);
+                float push = (minDist - pDist) + 12.0f;
+                m_playerPos.x += (pDx / pDist) * push;
+                m_playerPos.y += (pDy / pDist) * push;
+            }
+
+            if (!it->isBoss && (it->position.x < -150.0f || it->position.x > SCREEN_WIDTH + 150.0f ||
+                it->position.y < -150.0f || it->position.y > SCREEN_HEIGHT + 150.0f))
+            {
+                it = m_asteroids.erase(it);
+                continue;
+            }
+
+            ++it;
+        }
+
+        // Magnet attraction & Resource collection
+        float currentPickupRadius = m_superVacuumActive ? 3000.0f : m_stats.pickupRadius;
+        if (m_stats.hyperMagnet) currentPickupRadius *= 1.5f;
+        float currentMagnetSpeed = m_superVacuumActive ? 850.0f : 480.0f;
+
+        for (auto it = m_pickups.begin(); it != m_pickups.end(); )
+        {
+            it->driftTimer += deltaTime;
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+            it->velocity.x *= 0.95f;
+            it->velocity.y *= 0.95f;
+
+            float pDx = m_playerPos.x - it->position.x;
+            float pDy = m_playerPos.y - it->position.y;
+            float pDist = sqrt(pDx * pDx + pDy * pDy);
+
+            if (pDist < currentPickupRadius)
+            {
+                it->position.x += (pDx / pDist) * currentMagnetSpeed * deltaTime;
+                it->position.y += (pDy / pDist) * currentMagnetSpeed * deltaTime;
+            }
+
+            if (pDist < 28.0f)
+            {
+                if (m_stats.resourceOrbit && !m_superVacuumActive)
+                {
+                    // Convert into Orbiting Swirl particle before absorbing!
+                    OrbitingResource orb;
+                    orb.type = it->type;
+                    orb.amount = it->amount;
+                    orb.orbitAngle = RandomFloat(0.0f, 2.0f * PI);
+                    orb.orbitRadius = 38.0f;
+                    orb.lifetime = 0.0f;
+                    orb.maxLifetime = 0.75f;
+                    m_orbitingResources.push_back(orb);
+                }
+                else
+                {
+                    // Direct collection
+                    if (it->type == PickupType::Reishi)
+                    {
+                        int gain = (int)ceilf((float)it->amount * m_stats.resourceMultiplier);
+                        m_reishiCount += gain;
+                        m_runStats.reishiCollected += gain;
+                        m_upgradeTree.AddRunEarnings(m_resources, gain, 0, 0, 0, 0);
+                    }
+                    else if (it->type == PickupType::Vida)
+                    {
+                        m_runStats.vidaCollected += it->amount;
+                        m_upgradeTree.AddRunEarnings(m_resources, 0, it->amount, 0, 0, 0);
+                    }
+                    else if (it->type == PickupType::Disli)
+                    {
+                        m_runStats.disliCollected += it->amount;
+                        m_upgradeTree.AddRunEarnings(m_resources, 0, 0, it->amount, 0, 0);
+                    }
+                    else if (it->type == PickupType::Cpu)
+                    {
+                        m_runStats.cpuCollected += it->amount;
+                        m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, it->amount, 0);
+                    }
+                    else if (it->type == PickupType::Key)
+                    {
+                        m_runStats.keyCollected += it->amount;
+                        m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, 0, it->amount);
+                    }
+                }
+
+                it = m_pickups.erase(it);
+                continue;
+            }
+
+            ++it;
+        }
+
+        // Update Orbiting Resources (swirling around player)
+        for (auto it = m_orbitingResources.begin(); it != m_orbitingResources.end(); )
+        {
+            it->lifetime += deltaTime;
+            it->orbitAngle += 7.0f * deltaTime;
+            it->orbitRadius -= 25.0f * deltaTime;
+
+            if (it->lifetime >= it->maxLifetime || it->orbitRadius <= 6.0f)
+            {
+                // Finished orbit swirl: add to bank!
+                if (it->type == PickupType::Reishi)
+                {
+                    int gain = (int)ceilf((float)it->amount * m_stats.resourceMultiplier);
+                    m_reishiCount += gain;
+                    m_runStats.reishiCollected += gain;
+                    m_upgradeTree.AddRunEarnings(m_resources, gain, 0, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Vida)
+                {
+                    m_runStats.vidaCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, it->amount, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Disli)
+                {
+                    m_runStats.disliCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, it->amount, 0, 0);
+                }
+                else if (it->type == PickupType::Cpu)
+                {
+                    m_runStats.cpuCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, it->amount, 0);
+                }
+                else if (it->type == PickupType::Key)
+                {
+                    m_runStats.keyCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, 0, it->amount);
+                }
+
+                it = m_orbitingResources.erase(it);
+                continue;
+            }
+
+            ++it;
+        }
+
+        // Update Lasers
+        for (auto it = m_lasers.begin(); it != m_lasers.end(); )
+        {
+            it->lifetime -= deltaTime;
+            if (it->lifetime <= 0.0f)
+            {
+                it = m_lasers.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        // Update VFX
+        for (auto it = m_vfxs.begin(); it != m_vfxs.end(); )
+        {
+            it->lifetime += deltaTime;
+            if (it->isSpriteSheet)
+            {
+                it->frameTimer += deltaTime;
+                if (it->frameTimer >= it->frameDuration)
+                {
+                    it->frameTimer = 0.0f;
+                    it->currentFrame++;
+                    if (it->currentFrame >= it->frameCount)
+                    {
+                        it = m_vfxs.erase(it);
+                        continue;
+                    }
+                }
+            }
+            else if (it->isMultiTexture)
+            {
+                int totalFrames = (int)it->textureSequence.size();
+                int f = (int)((it->lifetime / it->maxLifetime) * (float)totalFrames);
+                if (f >= totalFrames)
+                {
+                    it = m_vfxs.erase(it);
+                    continue;
+                }
+                it->currentFrame = f;
+            }
+
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_vfxs.erase(it);
+                continue;
+            }
+            ++it;
+        }
+
+        // Update Shockwaves
+        for (auto it = m_shockwaves.begin(); it != m_shockwaves.end(); )
+        {
+            it->lifetime += deltaTime;
+            it->currentRadius = (it->lifetime / it->maxLifetime) * it->maxRadius;
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_shockwaves.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        // Update Damage Popups (World of Warcraft Parabolic Combat Text Physics)
+        for (auto it = m_damagePopups.begin(); it != m_damagePopups.end(); )
+        {
+            it->lifetime += deltaTime;
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+            it->velocity.y += 220.0f * deltaTime; // Gravity curve for satisfying upward bounce & arc
+
+            if (it->lifetime >= it->maxLifetime)
+            {
+                it = m_damagePopups.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        // Camera Shake decay
+        if (m_cameraShakeTimer > 0.0f)
+        {
+            m_cameraShakeTimer -= deltaTime;
+            float progress = (m_cameraShakeMaxDuration > 0.0001f) ? (m_cameraShakeTimer / m_cameraShakeMaxDuration) : 0.0f;
+            progress = std::clamp(progress, 0.0f, 1.0f);
+            float curIntensity = m_cameraShakeIntensity * progress;
+            if (curIntensity > 0.01f)
+            {
+                m_cameraOffset.x = RandomFloat(-curIntensity, curIntensity);
+                m_cameraOffset.y = RandomFloat(-curIntensity, curIntensity);
+            }
+            else
+            {
+                m_cameraOffset = { 0.0f, 0.0f };
+            }
+        }
+        else
+        {
+            m_cameraOffset = { 0.0f, 0.0f };
+        }
+    }
+    else if (m_runState == RunState::RunEnded)
+    {
+        m_endRunTimer -= deltaTime;
+
+        // Active super vacuum pull to suck all remaining crystals and drops to the player ship!
+        float currentPickupRadius = 3000.0f;
+        float currentMagnetSpeed = 850.0f;
+        for (auto it = m_pickups.begin(); it != m_pickups.end(); )
+        {
+            it->position.x += it->velocity.x * deltaTime;
+            it->position.y += it->velocity.y * deltaTime;
+            it->velocity.x *= 0.95f;
+            it->velocity.y *= 0.95f;
+
+            float pDx = m_playerPos.x - it->position.x;
+            float pDy = m_playerPos.y - it->position.y;
+            float pDist = sqrt(pDx * pDx + pDy * pDy);
+
+            if (pDist < currentPickupRadius)
+            {
+                it->position.x += (pDx / pDist) * currentMagnetSpeed * deltaTime;
+                it->position.y += (pDy / pDist) * currentMagnetSpeed * deltaTime;
+            }
+
+            if (pDist < 28.0f)
+            {
+                if (it->type == PickupType::Reishi)
+                {
+                    int gain = (int)ceilf((float)it->amount * m_stats.resourceMultiplier);
+                    m_reishiCount += gain;
+                    m_runStats.reishiCollected += gain;
+                    m_upgradeTree.AddRunEarnings(m_resources, gain, 0, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Vida)
+                {
+                    m_runStats.vidaCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, it->amount, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Disli)
+                {
+                    m_runStats.disliCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, it->amount, 0, 0);
+                }
+                else if (it->type == PickupType::Cpu)
+                {
+                    m_runStats.cpuCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, it->amount, 0);
+                }
+                else if (it->type == PickupType::Key)
+                {
+                    m_runStats.keyCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, 0, it->amount);
+                }
+
+                it = m_pickups.erase(it);
+                continue;
+            }
+            ++it;
+        }
+
+        // Explicitly proceed to Market / Upgrade Tree via SPACE or Left Click (no auto skip)
+        bool userProceed = InputKeyboard_IsTrigger(KK_SPACE) || InputMouse_IsTrigger(MOUSE_BUTTON_LEFT);
+
+        if (userProceed)
+        {
+            m_currentScene = GameScene::UpgradePlaceholder;
+            ResetRun();
+        }
+    }
+
+    m_totalTime += deltaTime;
+}
+
+void Game::UpdateUpgrade(float deltaTime)
+{
+    bool startGame = false;
+    m_upgradeTree.Update(deltaTime, m_stats, m_resources, startGame, m_upgradeTree.GetCurrentSectorIndex());
+
+    if (startGame)
+    {
+        m_calamity.level = m_upgradeTree.GetCurrentSectorIndex();
+        m_upgradeTree.ApplyStats(m_stats);
+        ResetRun();
+        m_currentScene = GameScene::Gameplay;
+    }
+}
+
+void Game::SpawnChest()
+{
+    if ((int)m_chests.size() >= 2) return;
+
+    AncientChest c;
+    int side = RandomInt(0, 3);
+    float speed = RandomFloat(25.0f, 50.0f);
+    float angle = RandomFloat(0.0f, 2.0f * PI);
+
+    if (side == 0) { c.position = { RandomFloat(100.0f, (float)SCREEN_WIDTH - 100.0f), -40.0f }; c.velocity = { cosf(angle) * speed, fabsf(sinf(angle)) * speed }; }
+    else if (side == 1) { c.position = { (float)SCREEN_WIDTH + 40.0f, RandomFloat(100.0f, (float)SCREEN_HEIGHT - 100.0f) }; c.velocity = { -fabsf(cosf(angle)) * speed, sinf(angle) * speed }; }
+    else if (side == 2) { c.position = { RandomFloat(100.0f, (float)SCREEN_WIDTH - 100.0f), (float)SCREEN_HEIGHT + 40.0f }; c.velocity = { cosf(angle) * speed, -fabsf(sinf(angle)) * speed }; }
+    else { c.position = { -40.0f, RandomFloat(100.0f, (float)SCREEN_HEIGHT - 100.0f) }; c.velocity = { fabsf(cosf(angle)) * speed, sinf(angle) * speed }; }
+
+    c.scale = 0.18f;
+    c.radius = 28.0f;
+    c.rotation = RandomFloat(0.0f, 2.0f * PI);
+    c.rotationSpeed = RandomFloat(-0.35f, 0.35f);
+    c.isOpened = false;
+
+    m_chests.push_back(c);
+}
+
+void Game::SpawnAnomalousAsteroid()
+{
+    Asteroid a;
+    a.position = { RandomFloat(200.0f, (float)SCREEN_WIDTH - 200.0f), -80.0f };
+    a.velocity = { RandomFloat(-20.0f, 20.0f), RandomFloat(35.0f, 65.0f) };
+    a.rotation = RandomFloat(0.0f, 2.0f * PI);
+    a.rotationSpeed = 0.45f;
+    a.maxHp = 340.0f;
+    a.hp = a.maxHp;
+    a.scale = 0.44f;
+    a.radius = 56.0f;
+    a.resourceAmount = 18;
+    a.isBoss = false;
+    a.destroyed = false;
+    a.flashTimer = 0.0f;
+    a.isAnomalousSignal = true;
+    a.auraColor = { 1.0f, 0.85f, 0.25f, 0.95f };
+
+    m_asteroids.push_back(a);
+    m_anomalousWarningDisplayTimer = 4.0f;
+    TriggerCameraShake(0.40f, 10.0f);
+}
+
+void Game::SpawnAsteroids(float deltaTime)
+{
+    // Chest spawn timer
+    m_chestSpawnTimer += deltaTime;
+    if (m_chestSpawnTimer >= 50.0f)
+    {
+        m_chestSpawnTimer = 0.0f;
+        SpawnChest();
+    }
+
+    // Anomalous Signal Asteroid timer
+    if (m_stats.treasureSignal)
+    {
+        m_anomalousSignalTimer += deltaTime;
+        if (m_anomalousSignalTimer >= 65.0f)
+        {
+            m_anomalousSignalTimer = 0.0f;
+            SpawnAnomalousAsteroid();
+        }
+    }
+
+    m_spawnTimer += deltaTime;
+    if (m_spawnTimer >= m_spawnInterval && (int)m_asteroids.size() < m_maxAliveAsteroids)
+    {
+        m_spawnTimer = 0.0f;
+
+        Asteroid a;
+        int side = RandomInt(0, 3);
+        float speed = RandomFloat(40.0f, 90.0f);
+        float angle = RandomFloat(0.0f, 2.0f * PI);
+
+        if (side == 0) { a.position = { RandomFloat(0.0f, (float)SCREEN_WIDTH), -40.0f }; a.velocity = { cosf(angle) * speed, fabsf(sinf(angle)) * speed }; }
+        else if (side == 1) { a.position = { (float)SCREEN_WIDTH + 40.0f, RandomFloat(0.0f, (float)SCREEN_HEIGHT) }; a.velocity = { -fabsf(cosf(angle)) * speed, sinf(angle) * speed }; }
+        else if (side == 2) { a.position = { RandomFloat(0.0f, (float)SCREEN_WIDTH), (float)SCREEN_HEIGHT + 40.0f }; a.velocity = { cosf(angle) * speed, -fabsf(sinf(angle)) * speed }; }
+        else { a.position = { -40.0f, RandomFloat(0.0f, (float)SCREEN_HEIGHT) }; a.velocity = { fabsf(cosf(angle)) * speed, sinf(angle) * speed }; }
+
+        a.rotation = RandomFloat(0.0f, 2.0f * PI);
+        a.rotationSpeed = RandomFloat(-1.2f, 1.2f);
+        a.maxHp = RandomFloat(50.0f, 120.0f);
+        a.hp = a.maxHp;
+        a.scale = RandomFloat(0.18f, 0.28f);
+        a.radius = 28.0f * (a.scale / 0.22f);
+        a.resourceAmount = RandomInt(2, 5);
+        a.isBoss = false;
+        a.destroyed = false;
+        a.flashTimer = 0.0f;
+
+        // Crystal Weakpoint
+        if (m_stats.crystalWeakpoints && RandomFloat(0.0f, 1.0f) < 0.45f)
+        {
+            a.hasWeakpoint = true;
+            a.weakpointAngle = RandomFloat(0.0f, 2.0f * PI);
+            a.weakpointRadius = a.radius * 0.70f;
+        }
+
+        // Rare Scanner Aura
+        if (m_stats.rareScanner && RandomFloat(0.0f, 1.0f) < 0.28f)
+        {
+            a.auraColor = DirectX::XMFLOAT4(0.40f, 0.85f, 1.0f, 0.85f);
+            a.resourceAmount *= 2;
+        }
+
+        m_asteroids.push_back(a);
+    }
+}
+
+void Game::SpawnEnemies(float deltaTime)
+{
+    m_enemySpawnTimer += deltaTime;
+    if (m_enemySpawnTimer >= m_enemySpawnInterval && (int)m_enemies.size() < m_maxAliveEnemies)
+    {
+        m_enemySpawnTimer = 0.0f;
+
+        Enemy e;
+        e.position = { RandomFloat(100.0f, (float)SCREEN_WIDTH - 100.0f), -50.0f };
+        e.targetPosition = { RandomFloat(120.0f, (float)SCREEN_WIDTH - 120.0f), RandomFloat(100.0f, (float)SCREEN_HEIGHT - 100.0f) };
+        e.velocity = { 0.0f, 0.0f };
+        e.rotation = 0.0f;
+        e.rotationSpeed = 2.0f;
+
+        e.maxHp = EnemyConfig::Drone.maxHp + (float)(m_calamity.level - 1) * 15.0f;
+        e.hp = e.maxHp;
+        e.radius = EnemyConfig::Drone.radius;
+        e.scale = EnemyConfig::Drone.scale;
+        e.shootInterval = std::max(0.9f, EnemyConfig::Drone.shootInterval - (float)(m_calamity.level - 1) * 0.15f);
+        e.shootTimer = RandomFloat(0.6f, e.shootInterval);
+        e.changeTargetTimer = 3.0f;
+        e.flashTimer = 0.0f;
+        e.destroyed = false;
+
+        m_enemies.push_back(e);
+    }
+}
+
+void Game::TargetAndFireLasers(float deltaTime)
+{
+    float fireInterval = m_isOvercharged ? 0.05f : m_stats.laserFireInterval;
+    if (m_retaliationTimer > 0.0f)
+    {
+        fireInterval *= 0.40f; // Retaliation Matrix triple fire rate
+    }
+
+    float currentDamage = m_isOvercharged ? (m_stats.laserDamage * 2.5f) : m_stats.laserDamage;
+
+    // Velocity Cannon: +Damage proportional to ship speed
+    if (m_stats.velocityCannon)
+    {
+        float speed = m_stats.moveSpeed;
+        currentDamage *= (1.0f + (speed / 300.0f) * 0.35f);
+    }
+
+    m_laserFireCooldown -= deltaTime;
+    m_laserDamageTickTimer += deltaTime;
+
+    bool tickDamage = false;
+    if (m_laserDamageTickTimer >= 0.08f)
+    {
+        tickDamage = true;
+        m_laserDamageTickTimer = 0.0f;
+    }
+
+    m_lasers.clear();
+    DirectX::XMFLOAT2 shipCenter = m_playerPos;
+
+    struct TargetItem
+    {
+        float dist;
+        Enemy* enemy;
+        Asteroid* asteroid;
+    };
+    std::vector<TargetItem> targets;
+
+    for (auto& enemy : m_enemies)
+    {
+        if (enemy.destroyed) continue;
+        float dx = enemy.position.x - m_playerPos.x;
+        float dy = enemy.position.y - m_playerPos.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist <= m_stats.laserRange)
+        {
+            targets.push_back({ dist, &enemy, nullptr });
+        }
+    }
+
+    for (auto& ast : m_asteroids)
+    {
+        if (ast.destroyed) continue;
+        float dx = ast.position.x - m_playerPos.x;
+        float dy = ast.position.y - m_playerPos.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist <= m_stats.laserRange)
+        {
+            targets.push_back({ dist, nullptr, &ast });
+        }
+    }
+
+    std::sort(targets.begin(), targets.end(), [](const TargetItem& a, const TargetItem& b) {
+        return a.dist < b.dist;
+    });
+
+    // Overheat Tracking
+    if (!targets.empty() && m_stats.overheatEnabled)
+    {
+        void* curPrimary = targets[0].enemy ? (void*)targets[0].enemy : (void*)targets[0].asteroid;
+        if (curPrimary == m_lastLaserTarget)
+        {
+            m_overheatDuration += deltaTime;
+            if (m_overheatDuration >= 1.2f)
+            {
+                currentDamage *= 2.0f; // Overheat double damage!
+            }
+        }
+        else
+        {
+            m_lastLaserTarget = curPrimary;
+            m_overheatDuration = 0.0f;
+        }
+    }
+    else
+    {
+        m_lastLaserTarget = nullptr;
+        m_overheatDuration = 0.0f;
+    }
+
+    int beamsToFire = std::min((int)targets.size(), m_stats.laserCount);
+    bool anyFired = false;
+
+    for (int i = 0; i < beamsToFire; ++i)
+    {
+        const auto& target = targets[i];
+        DirectX::XMFLOAT2 targetPos = target.enemy ? target.enemy->position : target.asteroid->position;
+
+        DirectX::XMFLOAT4 laserColor = m_isOvercharged
+            ? DirectX::XMFLOAT4(1.0f, 0.85f, 0.2f, 1.0f)
+            : (m_overheatDuration >= 1.2f)
+                ? DirectX::XMFLOAT4(1.0f, 0.25f, 0.35f, 1.0f) // Crimson overheat beam!
+                : DirectX::XMFLOAT4(0.35f, 0.85f, 1.0f, 1.0f);
+
+        LaserInstance laser;
+        laser.start = shipCenter;
+        laser.end = targetPos;
+        laser.lifetime = 0.10f;
+        laser.maxLifetime = 0.10f;
+        laser.color = laserColor;
+        m_lasers.push_back(laser);
+        anyFired = true;
+
+        // Piercing Beam: Continues through target to secondary target behind
+        if (m_stats.piercingBeam && (int)targets.size() > beamsToFire)
+        {
+            const auto& secTarget = targets[beamsToFire];
+            DirectX::XMFLOAT2 secPos = secTarget.enemy ? secTarget.enemy->position : secTarget.asteroid->position;
+            LaserInstance pierceBeam;
+            pierceBeam.start = targetPos;
+            pierceBeam.end = secPos;
+            pierceBeam.lifetime = 0.08f;
+            pierceBeam.maxLifetime = 0.08f;
+            pierceBeam.color = DirectX::XMFLOAT4(1.0f, 0.4f, 0.9f, 0.85f);
+            m_lasers.push_back(pierceBeam);
+
+            if (tickDamage)
+            {
+                float pierceDmg = currentDamage * 0.05f;
+                if (secTarget.enemy) { secTarget.enemy->hp -= pierceDmg; secTarget.enemy->flashTimer = 0.05f; }
+                else if (secTarget.asteroid) { secTarget.asteroid->hp -= pierceDmg; secTarget.asteroid->flashTimer = 0.05f; }
+            }
+        }
+
+        // Chain Laser Arc
+        if (m_stats.chainLaser && (int)targets.size() > 1 && i == 0)
+        {
+            const auto& chainTarget = targets[1];
+            DirectX::XMFLOAT2 chainPos = chainTarget.enemy ? chainTarget.enemy->position : chainTarget.asteroid->position;
+            LaserInstance chainBeam;
+            chainBeam.start = targetPos;
+            chainBeam.end = chainPos;
+            chainBeam.lifetime = 0.07f;
+            chainBeam.maxLifetime = 0.07f;
+            chainBeam.color = DirectX::XMFLOAT4(0.4f, 1.0f, 0.9f, 0.9f);
+            m_lasers.push_back(chainBeam);
+
+            if (tickDamage)
+            {
+                float chainDmg = currentDamage * 0.04f;
+                if (chainTarget.enemy) { chainTarget.enemy->hp -= chainDmg; chainTarget.enemy->flashTimer = 0.05f; }
+                else if (chainTarget.asteroid) { chainTarget.asteroid->hp -= chainDmg; chainTarget.asteroid->flashTimer = 0.05f; }
+            }
+        }
+
+        if (tickDamage)
+        {
+            float dmg = currentDamage * 0.08f;
+
+            // Laser Excavator: 2x damage against asteroids
+            if (m_stats.laserExcavator && target.asteroid)
+            {
+                dmg *= 2.0f;
+            }
+
+            if (target.enemy)
+            {
+                target.enemy->hp -= dmg;
+                target.enemy->flashTimer = 0.06f;
+                bool isCrit = m_isOvercharged || (m_overheatDuration >= 1.2f);
+                SpawnDamagePopup(target.enemy->position, (int)ceilf(dmg), isCrit, false, false);
+                if (target.enemy->hp <= 0.0f) target.enemy->destroyed = true;
+            }
+            else if (target.asteroid)
+            {
+                // Weakpoint check
+                if (target.asteroid->hasWeakpoint)
+                {
+                    dmg *= 2.2f;
+                    SpawnDamagePopup(target.asteroid->position, (int)ceilf(dmg), true, true, false);
+                }
+                else
+                {
+                    SpawnDamagePopup(target.asteroid->position, (int)ceilf(dmg), m_isOvercharged, false, true);
+                }
+
+                target.asteroid->hp -= dmg;
+                target.asteroid->flashTimer = 0.06f;
+
+                if (target.asteroid->hp <= 0.0f)
+                {
+                    target.asteroid->destroyed = true;
+
+                    // Core Meltdown Explosion
+                    if (m_stats.coreMeltdown)
+                    {
+                        TriggerShockwave(target.asteroid->position, 140.0f, 45.0f);
+                    }
+                }
+            }
+        }
+    }
+
+    if (anyFired && m_laserFireCooldown <= 0.0f)
+    {
+        m_laserFireCooldown = fireInterval;
+        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+    }
+}
+
+void Game::UpdateTurrets(float deltaTime)
+{
+    if (m_stats.turretCount <= 0)
+    {
+        m_turrets.clear();
+        return;
+    }
+
+    // Ensure turrets are placed on the map
+    if ((int)m_turrets.size() != m_stats.turretCount)
+    {
+        m_turrets.clear();
+        if (m_stats.turretCount == 1)
+        {
+            TurretInstance t;
+            t.position = { (float)SCREEN_WIDTH * 0.50f, (float)SCREEN_HEIGHT * 0.50f };
+            t.defenseRadius = m_stats.turretRange;
+            t.spec = m_stats.turretSpec;
+            t.fireCooldown = 0.0f;
+            m_turrets.push_back(t);
+        }
+        else if (m_stats.turretCount == 2)
+        {
+            TurretInstance t1;
+            t1.position = { (float)SCREEN_WIDTH * 0.32f, (float)SCREEN_HEIGHT * 0.50f };
+            t1.defenseRadius = m_stats.turretRange;
+            t1.spec = m_stats.turretSpec;
+            t1.fireCooldown = 0.0f;
+            m_turrets.push_back(t1);
+
+            TurretInstance t2;
+            t2.position = { (float)SCREEN_WIDTH * 0.68f, (float)SCREEN_HEIGHT * 0.50f };
+            t2.defenseRadius = m_stats.turretRange;
+            t2.spec = m_stats.turretSpec;
+            t2.fireCooldown = 0.0f;
+            m_turrets.push_back(t2);
+        }
+        else if (m_stats.turretCount >= 3)
+        {
+            TurretInstance t1;
+            t1.position = { (float)SCREEN_WIDTH * 0.50f, (float)SCREEN_HEIGHT * 0.30f };
+            t1.defenseRadius = m_stats.turretRange;
+            t1.spec = m_stats.turretSpec;
+            t1.fireCooldown = 0.0f;
+            m_turrets.push_back(t1);
+
+            TurretInstance t2;
+            t2.position = { (float)SCREEN_WIDTH * 0.28f, (float)SCREEN_HEIGHT * 0.70f };
+            t2.defenseRadius = m_stats.turretRange;
+            t2.spec = m_stats.turretSpec;
+            t2.fireCooldown = 0.0f;
+            m_turrets.push_back(t2);
+
+            TurretInstance t3;
+            t3.position = { (float)SCREEN_WIDTH * 0.72f, (float)SCREEN_HEIGHT * 0.70f };
+            t3.defenseRadius = m_stats.turretRange;
+            t3.spec = m_stats.turretSpec;
+            t3.fireCooldown = 0.0f;
+            m_turrets.push_back(t3);
+        }
+    }
+
+    for (size_t i = 0; i < m_turrets.size(); ++i)
+    {
+        auto& turret = m_turrets[i];
+        turret.spec = m_stats.turretSpec;
+        turret.defenseRadius = m_stats.turretRange;
+
+        // Check if player is inside the turret's operational defense zone
+        float pDx = m_playerPos.x - turret.position.x;
+        float pDy = m_playerPos.y - turret.position.y;
+        float pDist = sqrtf(pDx * pDx + pDy * pDy);
+        turret.isPlayerInZone = (pDist <= turret.defenseRadius + 50.0f);
+
+        if (turret.fireCooldown > 0.0f)
+        {
+            turret.fireCooldown -= deltaTime;
+        }
+
+        // Turret actively defends its zone when player is in the zone
+        if (turret.isPlayerInZone)
+        {
+            float bestDist = turret.defenseRadius;
+            DirectX::XMFLOAT2 targetPos{ 0.0f, 0.0f };
+            bool foundTarget = false;
+            Enemy* targetEnemy = nullptr;
+            Asteroid* targetAst = nullptr;
+
+            // Mining Turret prioritizes asteroids
+            if (turret.spec == TurretSpec::Mining)
+            {
+                for (auto& ast : m_asteroids)
+                {
+                    if (ast.destroyed) continue;
+                    float dx = ast.position.x - turret.position.x;
+                    float dy = ast.position.y - turret.position.y;
+                    float dist = sqrtf(dx * dx + dy * dy);
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        targetPos = ast.position;
+                        foundTarget = true;
+                        targetAst = &ast;
+                    }
+                }
+            }
+            else
+            {
+                for (auto& enemy : m_enemies)
+                {
+                    if (enemy.destroyed) continue;
+                    float dx = enemy.position.x - turret.position.x;
+                    float dy = enemy.position.y - turret.position.y;
+                    float dist = sqrtf(dx * dx + dy * dy);
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        targetPos = enemy.position;
+                        foundTarget = true;
+                        targetEnemy = &enemy;
+                    }
+                }
+
+                if (!foundTarget)
+                {
+                    for (auto& ast : m_asteroids)
+                    {
+                        if (ast.destroyed) continue;
+                        float dx = ast.position.x - turret.position.x;
+                        float dy = ast.position.y - turret.position.y;
+                        float dist = sqrtf(dx * dx + dy * dy);
+                        if (dist < bestDist)
+                        {
+                            bestDist = dist;
+                            targetPos = ast.position;
+                            foundTarget = true;
+                            targetAst = &ast;
+                        }
+                    }
+                }
+            }
+
+            if (foundTarget)
+            {
+                // Face target smoothly
+                float fdx = targetPos.x - turret.position.x;
+                float fdy = targetPos.y - turret.position.y;
+                turret.rotation = atan2f(fdy, fdx) + (PI * 0.5f);
+
+                if (turret.fireCooldown <= 0.0f)
+                {
+                    turret.fireCooldown = m_stats.turretFireInterval;
+
+                    if (turret.spec == TurretSpec::Plasma)
+                    {
+                        LaserInstance beam;
+                        beam.start = turret.position;
+                        beam.end = targetPos;
+                        beam.lifetime = 0.16f;
+                        beam.maxLifetime = 0.16f;
+                        beam.color = DirectX::XMFLOAT4(0.95f, 0.40f, 1.0f, 1.0f);
+                        m_lasers.push_back(beam);
+
+                        TriggerShockwave(targetPos, 90.0f, m_stats.turretDamage * 1.5f);
+                    }
+                    else
+                    {
+                        LaserInstance beam;
+                        beam.start = turret.position;
+                        beam.end = targetPos;
+                        beam.lifetime = 0.14f;
+                        beam.maxLifetime = 0.14f;
+                        beam.color = (turret.spec == TurretSpec::Mining)
+                            ? DirectX::XMFLOAT4(0.35f, 1.0f, 0.50f, 1.0f)
+                            : DirectX::XMFLOAT4(0.35f, 0.95f, 1.0f, 1.0f);
+                        m_lasers.push_back(beam);
+
+                        int dmg = (int)m_stats.turretDamage;
+                        if (turret.spec == TurretSpec::Mining && targetAst) dmg *= 2;
+
+                        if (targetEnemy)
+                        {
+                            targetEnemy->hp -= (float)dmg;
+                            targetEnemy->flashTimer = 0.08f;
+                            SpawnDamagePopup(targetEnemy->position, dmg, false);
+                            if (targetEnemy->hp <= 0.0f) targetEnemy->destroyed = true;
+                        }
+                        else if (targetAst)
+                        {
+                            targetAst->hp -= (float)dmg;
+                            targetAst->flashTimer = 0.08f;
+                            SpawnDamagePopup(targetAst->position, dmg, false);
+                            if (targetAst->hp <= 0.0f) targetAst->destroyed = true;
+                        }
+                    }
+
+                    if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                }
+            }
+        }
+    }
+}
+
+void Game::DamagePlayer(int amount)
+{
+    if (m_invincibleTimer > 0.0f || m_runState != RunState::Active)
+    {
+        return;
+    }
+
+    if (m_isDashing)
+    {
+        return; // Invulnerable during Dash
+    }
+
+    if (m_currentShield > 0)
+    {
+        m_currentShield--;
+        m_shieldRechargeTimer = 8.0f;
+        TriggerCameraShake(0.25f, 6.0f);
+        TriggerShockwave(m_playerPos, 160.0f, 20.0f); // Shield burst
+        return;
+    }
+
+    m_playerHealth -= amount;
+    m_invincibleTimer = 1.5f;
+    TriggerCameraShake(0.35f, 8.5f);
+
+    VFXInstance hit;
+    hit.position = m_playerPos;
+    hit.lifetime = 0.0f;
+    hit.maxLifetime = 0.28f;
+    hit.scale = 0.35f;
+    hit.isSpriteSheet = true;
+    hit.frameCount = 8;
+    hit.frameDuration = 0.035f;
+    hit.textureId = m_texLaserHit;
+    m_vfxs.push_back(hit);
+
+    if (m_playerHealth <= 0)
+    {
+        m_playerHealth = 0;
+        m_runState = RunState::RunEnded;
+        m_superVacuumActive = true;
+        m_endRunTimer = 7.0f;
+        TriggerCameraShake(0.65f, 15.0f);
+
+        VFXInstance exp;
+        exp.position = m_playerPos;
+        exp.lifetime = 0.0f;
+        exp.maxLifetime = 0.6f;
+        exp.scale = 2.5f;
+        exp.isMultiTexture = true;
+        exp.textureSequence = m_texExplosions;
+        m_vfxs.push_back(exp);
+    }
+}
+
+void Game::TriggerCameraShake(float duration, float intensity)
+{
+    m_cameraShakeTimer = duration;
+    m_cameraShakeMaxDuration = duration;
+    m_cameraShakeIntensity = intensity;
+}
+
+void Game::SpawnDamagePopup(const DirectX::XMFLOAT2& pos, int damage, bool isCrit, bool isWeakpoint, bool isMining)
+{
+    if (damage <= 0) return;
+
+    DamagePopup dp;
+    dp.position = pos;
+    // WoW-style scatter around the impact point
+    dp.position.x += RandomFloat(-16.0f, 16.0f);
+    dp.position.y += RandomFloat(-10.0f, 8.0f);
+
+    dp.damageAmount = damage;
+    dp.isCritical = isCrit;
+    dp.isWeakpoint = isWeakpoint;
+    dp.isMining = isMining;
+    dp.lifetime = 0.0f;
+    dp.maxLifetime = (isCrit || isWeakpoint) ? 0.90f : 0.78f;
+
+    // WoW-style parabolic upward arc initial velocities
+    if (isCrit)
+    {
+        dp.velocity = { RandomFloat(-36.0f, 36.0f), -RandomFloat(150.0f, 210.0f) };
+        dp.baseScale = 1.45f;
+        dp.color = DirectX::XMFLOAT4(1.0f, 0.86f, 0.16f, 1.0f); // Blazing Sunburst Gold
+    }
+    else if (isWeakpoint)
+    {
+        dp.velocity = { RandomFloat(-30.0f, 30.0f), -RandomFloat(160.0f, 220.0f) };
+        dp.baseScale = 1.50f;
+        dp.color = DirectX::XMFLOAT4(0.35f, 1.0f, 0.95f, 1.0f); // Electric Cyan
+    }
+    else if (isMining)
+    {
+        dp.velocity = { RandomFloat(-25.0f, 25.0f), -RandomFloat(100.0f, 140.0f) };
+        dp.baseScale = 1.05f;
+        dp.color = DirectX::XMFLOAT4(0.40f, 1.0f, 0.65f, 1.0f); // Mineral Emerald
+    }
+    else
+    {
+        dp.velocity = { RandomFloat(-28.0f, 28.0f), -RandomFloat(115.0f, 160.0f) };
+        dp.baseScale = 1.0f;
+        dp.color = DirectX::XMFLOAT4(1.0f, 0.96f, 0.82f, 1.0f); // Crisp Ivory Gold
+    }
+
+    m_damagePopups.push_back(dp);
+}
+
+void Game::TriggerBossEncounter(int bossType)
+{
+    m_bossTriggered = true;
+    m_bossWarningTimer = 3.5f;
+
+    Asteroid boss;
+    boss.isBoss = true;
+    boss.destroyed = false;
+    boss.flashTimer = 0.0f;
+    boss.bossType = bossType;
+
+    if (bossType == 1)
+    {
+        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -140.0f);
+        boss.velocity = DirectX::XMFLOAT2(0.0f, EnemyConfig::Boss1.moveSpeed);
+        boss.rotation = 0.0f;
+        boss.rotationSpeed = EnemyConfig::Boss1.rotationSpeed;
+        boss.maxHp = EnemyConfig::Boss1.baseHp + (float)(m_calamity.level - 1) * EnemyConfig::Boss1.hpPerSectorLevel;
+        boss.hp = boss.maxHp;
+        boss.scale = EnemyConfig::Boss1.scale;
+        boss.radius = EnemyConfig::Boss1.radius;
+        boss.resourceAmount = 50;
+    }
+    else // bossType == 2 (Void Destroyer)
+    {
+        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -140.0f);
+        boss.velocity = DirectX::XMFLOAT2(0.0f, 65.0f);
+        boss.rotation = 0.0f;
+        boss.rotationSpeed = EnemyConfig::Boss2.normalRotationSpeed;
+        boss.maxHp = EnemyConfig::Boss2.baseHp + (float)(m_calamity.level - 1) * EnemyConfig::Boss2.hpPerSectorLevel;
+        boss.hp = boss.maxHp;
+        boss.scale = EnemyConfig::Boss2.scale;
+        boss.radius = EnemyConfig::Boss2.radius;
+        boss.resourceAmount = 80;
+
+        // AI State Machine setup
+        boss.bossPhase = BossPhase::Enter;
+        boss.bossPhaseTimer = 0.0f;
+        boss.bossShootTimer = EnemyConfig::Boss2.normalShootInterval;
+        boss.bossSpiralFireTimer = 0.0f;
+        boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, 220.0f);
+    }
+
+    m_asteroids.push_back(boss);
+}
+
+void Game::Draw()
+{
+    if (m_currentScene == GameScene::Gameplay)
+    {
+        DrawGameplay();
+    }
+    else if (m_currentScene == GameScene::UpgradePlaceholder)
+    {
+        DrawUpgrade();
+    }
+}
+
+void Game::DrawSkillBar()
+{
+    float cardW = 54.0f;
+    float cardH = 54.0f;
+    float gap = 12.0f;
+    float totalW = 3 * cardW + 2 * gap;
+    float startX = SCREEN_WIDTH * 0.5f - totalW * 0.5f;
+    float startY = SCREEN_HEIGHT - 128.0f;
+
+    for (int i = 0; i < 3; ++i)
+    {
+        float x = startX + i * (cardW + gap);
+        float y = startY;
+
+        const auto& slot = m_skillSlots[i];
+        bool isUnlocked = (slot.type != ActiveSkillType::None);
+        bool isReady = (isUnlocked && slot.cooldownTimer <= 0.0f);
+
+        DirectX::XMFLOAT4 bgCol = isReady
+            ? DirectX::XMFLOAT4(0.12f, 0.08f, 0.18f, 0.90f)
+            : DirectX::XMFLOAT4(0.08f, 0.05f, 0.10f, 0.85f);
+
+        DirectX::XMFLOAT4 borderCol = isReady
+            ? DirectX::XMFLOAT4(0.40f, 0.95f, 1.0f, 1.0f)
+            : DirectX::XMFLOAT4(0.30f, 0.25f, 0.35f, 0.6f);
+
+        Sprite_DrawRect(x, y, cardW, cardH, bgCol);
+        Sprite_DrawRectBorder(x, y, cardW, cardH, 2.0f, borderCol);
+
+        if (isUnlocked)
+        {
+            float iconX = x + cardW * 0.5f;
+            float iconY = y + cardH * 0.45f;
+            DirectX::XMFLOAT4 iconCol = isReady
+                ? DirectX::XMFLOAT4(1.0f, 0.95f, 0.80f, 1.0f)
+                : DirectX::XMFLOAT4(0.45f, 0.40f, 0.50f, 0.6f);
+
+            if (slot.type == ActiveSkillType::EmpWave)
+            {
+                Sprite_DrawRectBorder(iconX - 12.0f, iconY - 12.0f, 24.0f, 24.0f, 1.5f, iconCol);
+                Sprite_DrawLine(iconX - 10.0f, iconY, iconX + 10.0f, iconY, 2.0f, iconCol);
+            }
+            else if (slot.type == ActiveSkillType::Overcharge)
+            {
+                Sprite_DrawLine(iconX, iconY - 12.0f, iconX + 10.0f, iconY + 10.0f, 2.0f, iconCol);
+                Sprite_DrawLine(iconX, iconY - 12.0f, iconX - 10.0f, iconY + 10.0f, 2.0f, iconCol);
+            }
+            else if (slot.type == ActiveSkillType::PhaseDash)
+            {
+                Sprite_DrawLine(iconX - 10.0f, iconY - 8.0f, iconX, iconY, 2.0f, iconCol);
+                Sprite_DrawLine(iconX - 10.0f, iconY + 8.0f, iconX, iconY, 2.0f, iconCol);
+                Sprite_DrawLine(iconX, iconY - 8.0f, iconX + 10.0f, iconY, 2.0f, iconCol);
+                Sprite_DrawLine(iconX, iconY + 8.0f, iconX + 10.0f, iconY, 2.0f, iconCol);
+            }
+
+            if (slot.cooldownTimer > 0.0f)
+            {
+                float cdPct = slot.cooldownTimer / slot.maxCooldown;
+                Sprite_DrawRect(x, y + cardH * (1.0f - cdPct), cardW, cardH * cdPct, { 0.05f, 0.03f, 0.08f, 0.75f });
+                int cdSec = (int)ceilf(slot.cooldownTimer);
+                DrawNumber(x + cardW * 0.5f - 8.0f, y + cardH * 0.5f - 8.0f, cdSec, 1, 14.0f, m_texNumber, { 1.0f, 0.4f, 0.4f, 1.0f });
+            }
+        }
+        else
+        {
+            DrawMatrixString(x + cardW * 0.5f - 4.0f, y + cardH * 0.5f - 6.0f, "?", 2.2f, m_texLaser, { 0.35f, 0.30f, 0.35f, 0.6f });
+        }
+
+        // Hotkey badge
+        float badgeW = 26.0f;
+        float badgeH = 12.0f;
+        float badgeX = x + cardW * 0.5f - badgeW * 0.5f;
+        float badgeY = y + cardH - 8.0f;
+
+        Sprite_DrawRect(badgeX, badgeY, badgeW, badgeH, { 0.15f, 0.10f, 0.20f, 0.95f });
+        Sprite_DrawRectBorder(badgeX, badgeY, badgeW, badgeH, 1.0f, { 0.8f, 0.75f, 0.6f, 0.8f });
+        DrawMatrixString(badgeX + 3.0f, badgeY + 1.0f, slot.keyLabel.c_str(), 1.4f, m_texLaser, { 1.0f, 0.9f, 0.6f, 1.0f });
+    }
+}
+
+void Game::DrawGameplay()
+{
+    float camX = m_cameraOffset.x;
+    float camY = m_cameraOffset.y;
+
+    // 1. Draw Fixed Background
+    if (m_texBackground != -1)
+    {
+        Sprite_Draw(m_texBackground, camX, camY, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, 
+            0, 0, Texture_GetWidth(m_texBackground), Texture_GetHeight(m_texBackground), 
+            { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    // 2. Draw Asteroids & Weakpoints
+    for (const auto& ast : m_asteroids)
+    {
+        if (ast.destroyed) continue;
+
+        // Draw Anomaly / Rare Aura
+        if (ast.auraColor.w > 0.05f)
+        {
+            float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+            DirectX::XMFLOAT4 aCol = ast.auraColor;
+            aCol.w *= pulse;
+            Sprite_DrawCircle(ast.position.x + camX, ast.position.y + camY, ast.radius + 8.0f, 3.0f, aCol, 36);
+        }
+
+        if (ast.isBoss)
+        {
+            int bossTex = (ast.bossType == 2 && m_texBoss2 != -1) ? m_texBoss2 : m_texBoss1;
+            int texW = (bossTex != -1) ? Texture_GetWidth(bossTex) : 500;
+            int texH = (bossTex != -1) ? Texture_GetHeight(bossTex) : 500;
+            float w = (float)texW * ast.scale;
+            float h = (float)texH * ast.scale;
+
+            DirectX::XMFLOAT4 col = (ast.flashTimer > 0.0f)
+                ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f)
+                : (ast.bossType == 2 && ast.bossPhase == BossPhase::AlarmWarning)
+                    ? DirectX::XMFLOAT4(1.0f, 0.4f + 0.6f * sinf(m_totalTime * 22.0f), 0.3f, 1.0f)
+                    : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+            // In AlarmWarning phase: draw pulsing expanding alarm aura circles and warning text
+            if (ast.bossType == 2 && ast.bossPhase == BossPhase::AlarmWarning)
+            {
+                float pulseRing = fmodf(m_totalTime * 3.5f, 1.0f);
+                float ringRad = ast.radius * (0.8f + pulseRing * 0.9f);
+                Sprite_DrawCircle(ast.position.x + camX, ast.position.y + camY, ringRad, 3.0f,
+                    { 1.0f, 0.25f, 0.20f, 1.0f - pulseRing }, 32);
+                DrawMatrixString(ast.position.x + camX - 75.0f, ast.position.y + camY - h * 0.5f - 38.0f,
+                    "! DIKKAT : SPIRAL SALDIRI !", 1.4f, m_texLaser, { 1.0f, 0.3f, 0.3f, 1.0f });
+            }
+
+            if (bossTex != -1)
+            {
+                Sprite_Draw(bossTex, ast.position.x + camX - w * 0.5f, ast.position.y + camY - h * 0.5f, w, h,
+                    0, 0, texW, texH, ast.rotation, { 1.0f, 1.0f }, col);
+            }
+
+            // Boss Health Bar
+            float barW = 150.0f;
+            float barH = 10.0f;
+            float barX = ast.position.x + camX - barW * 0.5f;
+            float barY = ast.position.y + camY - h * 0.5f - 18.0f;
+            Sprite_DrawRect(barX, barY, barW, barH, { 0.2f, 0.05f, 0.05f, 0.9f });
+            Sprite_DrawRectBorder(barX, barY, barW, barH, 1.5f, { 0.85f, 0.2f, 0.2f, 1.0f });
+            float hpPct = std::clamp(ast.hp / ast.maxHp, 0.0f, 1.0f);
+            Sprite_DrawRect(barX, barY, barW * hpPct, barH, { 1.0f, 0.2f, 0.25f, 1.0f });
+
+            // Boss Title Badge
+            const char* bossTitle = (ast.bossType == 2) ? "PATRON II : VOID DESTROYER" : "PATRON I : GARGANTUAN";
+            DrawMatrixString(barX - 10.0f, barY - 14.0f, bossTitle, 1.3f, m_texLaser, { 1.0f, 0.85f, 0.3f, 1.0f });
+        }
+        else if (m_texAsteroid != -1)
+        {
+            int texW = Texture_GetWidth(m_texAsteroid);
+            int texH = Texture_GetHeight(m_texAsteroid);
+            float w = (float)texW * ast.scale;
+            float h = (float)texH * ast.scale;
+
+            DirectX::XMFLOAT4 col = (ast.flashTimer > 0.0f) ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f) : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+            Sprite_Draw(m_texAsteroid, ast.position.x + camX - w * 0.5f, ast.position.y + camY - h * 0.5f, w, h,
+                0, 0, texW, texH, ast.rotation, { 1.0f, 1.0f }, col);
+
+            // Draw Crystal Weakpoint Reticle
+            if (ast.hasWeakpoint)
+            {
+                float wpX = ast.position.x + camX + cosf(ast.weakpointAngle) * ast.weakpointRadius;
+                float wpY = ast.position.y + camY + sinf(ast.weakpointAngle) * ast.weakpointRadius;
+                float pulse = sinf(m_totalTime * 8.0f) * 0.25f + 0.75f;
+                Sprite_DrawCircle(wpX, wpY, 8.0f, 2.0f, { 1.0f, 0.25f, 0.35f, pulse }, 16);
+                Sprite_DrawRect(wpX - 2.0f, wpY - 2.0f, 4.0f, 4.0f, { 1.0f, 0.85f, 0.3f, 1.0f });
+            }
+
+            // Ore Vision & Deep Scan: Shows internal crystal core inside asteroid before breaking
+            if (m_stats.oreVision || m_stats.deepScan)
+            {
+                float pulse = sinf(m_totalTime * 5.0f + ast.rotation) * 0.20f + 0.80f;
+                float coreX = ast.position.x + camX;
+                float coreY = ast.position.y + camY;
+                DirectX::XMFLOAT4 oreCol = ast.isAnomalousSignal
+                    ? DirectX::XMFLOAT4(1.0f, 0.85f, 0.25f, 0.95f * pulse)
+                    : (ast.resourceAmount >= 15)
+                        ? DirectX::XMFLOAT4(0.40f, 0.95f, 1.0f, 0.85f * pulse)
+                        : DirectX::XMFLOAT4(0.70f, 0.50f, 1.0f, 0.75f * pulse);
+
+                Sprite_DrawCircle(coreX, coreY, 9.0f, 2.0f, oreCol, 16);
+                Sprite_DrawRect(coreX - 2.0f, coreY - 2.0f, 4.0f, 4.0f, oreCol);
+            }
+        }
+    }
+
+    // 2b. Draw Ancient Space Chests (chest.png)
+    for (const auto& chest : m_chests)
+    {
+        if (chest.isOpened) continue;
+        float cX = chest.position.x + camX;
+        float cY = chest.position.y + camY;
+        float pulse = sinf(m_totalTime * 5.0f) * 0.20f + 0.80f;
+
+        // Golden aura ring around chest
+        Sprite_DrawCircle(cX, cY, chest.radius + 6.0f, 2.5f, { 1.0f, 0.85f, 0.25f, pulse }, 28);
+
+        if (m_texChest != -1)
+        {
+            float size = 52.0f;
+            Sprite_Draw(m_texChest, cX - size * 0.5f, cY - size * 0.5f, size, size,
+                0, 0, Texture_GetWidth(m_texChest), Texture_GetHeight(m_texChest),
+                chest.rotation, { 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+
+        // Label above chest
+        DrawMatrixString(cX - 55.0f, cY - chest.radius - 18.0f, "[ 1 ANAHTAR ]", 1.6f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
+    }
+
+    // 3. Draw Enemies
+    for (const auto& enemy : m_enemies)
+    {
+        if (enemy.destroyed || m_texEnemy1 == -1) continue;
+        int texW = Texture_GetWidth(m_texEnemy1);
+        int texH = Texture_GetHeight(m_texEnemy1);
+        float w = (float)texW * enemy.scale;
+        float h = (float)texH * enemy.scale;
+
+        DirectX::XMFLOAT4 col = (enemy.flashTimer > 0.0f) ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f) : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        Sprite_Draw(m_texEnemy1, enemy.position.x + camX - w * 0.5f, enemy.position.y + camY - h * 0.5f, w, h,
+            0, 0, texW, texH, enemy.rotation, { 1.0f, 1.0f }, col);
+    }
+
+    // 4. Draw Enemy Projectiles
+    for (const auto& bullet : m_enemyProjectiles)
+    {
+        DirectX::XMFLOAT4 bCol = bullet.isReflected
+            ? DirectX::XMFLOAT4(0.35f, 1.0f, 0.60f, 1.0f) // Reflected green
+            : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+        if (bullet.isBossSpiral && m_texBossProjectile != -1)
+        {
+            // Boss 2 Custom Projectile (projectile.png)
+            // The texture image stands vertically pointing UP.
+            // Velocity heading angle theta where (0,-1) is UP:
+            float rotAngle = atan2f(bullet.velocity.x, -bullet.velocity.y);
+
+            int texW = Texture_GetWidth(m_texBossProjectile);
+            int texH = Texture_GetHeight(m_texBossProjectile);
+            float scale = 0.055f;
+            float pw = (float)texW * scale;
+            float ph = (float)texH * scale;
+
+            Sprite_Draw(m_texBossProjectile,
+                bullet.position.x + camX - pw * 0.5f,
+                bullet.position.y + camY - ph * 0.5f,
+                pw, ph,
+                0, 0, texW, texH,
+                rotAngle, { 1.0f, 1.0f }, bCol);
+        }
+        else if (m_texEnemy1Bullet != -1)
+        {
+            float bSize = 22.0f;
+            Sprite_Draw(m_texEnemy1Bullet,
+                bullet.position.x + camX - bSize * 0.5f,
+                bullet.position.y + camY - bSize * 0.5f,
+                bSize, bSize,
+                0, 0, 500, 500, bCol);
+        }
+    }
+
+    // 5. Draw Collectible Pickups (with glowing halos and clear textures)
+    for (const auto& p : m_pickups)
+    {
+        float bob = sinf(m_totalTime * 4.5f + p.position.x * 0.05f) * 3.0f;
+        float pX = p.position.x + camX;
+        float pY = p.position.y + camY + bob;
+
+        if (p.type == PickupType::Reishi && m_texResources != -1)
+        {
+            float rw = 38.0f;
+            float rh = 50.0f;
+            Sprite_Draw(m_texResources, pX - rw * 0.5f, pY - rh * 0.5f, rw, rh,
+                0, 0, 256, 341, { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+        else if (p.type == PickupType::Vida && m_texVida != -1)
+        {
+            float size = 44.0f;
+            Sprite_DrawCircle(pX, pY, 24.0f, 2.0f, { 0.40f, 0.85f, 1.0f, 0.70f }, 18);
+            Sprite_Draw(m_texVida, pX - size * 0.5f, pY - size * 0.5f, size, size,
+                0, 0, Texture_GetWidth(m_texVida), Texture_GetHeight(m_texVida), { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+        else if (p.type == PickupType::Disli && m_texDisli != -1)
+        {
+            float size = 48.0f;
+            Sprite_DrawCircle(pX, pY, 26.0f, 2.5f, { 1.0f, 0.65f, 0.20f, 0.75f }, 20);
+            Sprite_Draw(m_texDisli, pX - size * 0.5f, pY - size * 0.5f, size, size,
+                0, 0, Texture_GetWidth(m_texDisli), Texture_GetHeight(m_texDisli), { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+        else if (p.type == PickupType::Cpu && m_texCpu != -1)
+        {
+            float size = 50.0f;
+            Sprite_DrawCircle(pX, pY, 28.0f, 2.5f, { 0.35f, 0.95f, 1.0f, 0.85f }, 24);
+            Sprite_Draw(m_texCpu, pX - size * 0.5f, pY - size * 0.5f, size, size,
+                0, 0, Texture_GetWidth(m_texCpu), Texture_GetHeight(m_texCpu), { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+        else if (p.type == PickupType::Key && m_texKey != -1)
+        {
+            float size = 54.0f;
+            Sprite_DrawCircle(pX, pY, 30.0f, 3.0f, { 1.0f, 0.85f, 0.25f, 0.95f }, 24);
+            Sprite_Draw(m_texKey, pX - size * 0.5f, pY - size * 0.5f, size, size,
+                0, 0, Texture_GetWidth(m_texKey), Texture_GetHeight(m_texKey), { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+    }
+
+    // 5b. Draw Orbiting Swirl Resource Particles around Player
+    for (const auto& orb : m_orbitingResources)
+    {
+        float ox = m_playerPos.x + camX + cosf(orb.orbitAngle) * orb.orbitRadius;
+        float oy = m_playerPos.y + camY + sinf(orb.orbitAngle) * orb.orbitRadius;
+        DirectX::XMFLOAT4 orbCol{ 1.0f, 0.85f, 0.35f, 0.95f };
+        if (orb.type == PickupType::Vida) orbCol = { 0.45f, 0.85f, 1.0f, 0.95f };
+        else if (orb.type == PickupType::Disli) orbCol = { 1.0f, 0.65f, 0.20f, 0.95f };
+        else if (orb.type == PickupType::Cpu) orbCol = { 0.35f, 0.95f, 1.0f, 0.95f };
+        else if (orb.type == PickupType::Key) orbCol = { 1.0f, 0.90f, 0.30f, 1.0f };
+
+        Sprite_DrawCircle(ox, oy, 4.5f, 2.0f, orbCol, 12);
+        Sprite_DrawRect(ox - 1.5f, oy - 1.5f, 3.0f, 3.0f, { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    // 6. Draw Player spaceship
+    if (m_texSpaceship != -1 && (m_playerHealth > 0 || m_runState != RunState::RunEnded))
+    {
+        float w = 48.0f;
+        float h = 72.0f;
+        float bob = sin(m_totalTime * 2.2f) * 2.0f;
+
+        DirectX::XMFLOAT4 shipColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+        if (m_isDashing)
+        {
+            shipColor = DirectX::XMFLOAT4(0.4f, 0.85f, 1.0f, 0.70f); // Cyan ghosting
+        }
+        else if (m_invincibleTimer > 0.0f)
+        {
+            int phase = (int)(m_invincibleTimer * 16.0f) % 2;
+            shipColor = (phase == 0) ? DirectX::XMFLOAT4(1.0f, 0.35f, 0.35f, 0.45f) : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 0.95f);
+        }
+        
+        Sprite_Draw(m_texSpaceship, m_playerPos.x + camX - w * 0.5f, m_playerPos.y + camY - h * 0.5f + bob, w, h,
+            0, 0, Texture_GetWidth(m_texSpaceship), Texture_GetHeight(m_texSpaceship),
+            m_playerRotation, { 1.0f, 1.0f }, shipColor);
+
+        // Draw Shield Bubble (Circular forcefield) around ship if active
+        if (m_currentShield > 0)
+        {
+            float shieldRad = 38.0f;
+            float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+            Sprite_DrawCircle(m_playerPos.x + camX, m_playerPos.y + camY, shieldRad, 2.5f, { 0.3f, 0.85f, 1.0f, pulse }, 36);
+            Sprite_DrawCircle(m_playerPos.x + camX, m_playerPos.y + camY, shieldRad - 3.0f, 1.2f, { 0.6f, 0.95f, 1.0f, pulse * 0.5f }, 32);
+        }
+    }
+
+    // 7. Draw Stationary Sentry Defense Stations (taret.png)
+    for (const auto& turret : m_turrets)
+    {
+        float tx = turret.position.x + camX;
+        float ty = turret.position.y + camY;
+        float rad = turret.defenseRadius;
+
+        // A. Operational Defense Field Perimeter
+        if (turret.isPlayerInZone)
+        {
+            float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+            DirectX::XMFLOAT4 activeBorder{ 0.30f, 1.0f, 0.65f, 0.60f * pulse };
+
+            // Primary active zone ring
+            Sprite_DrawCircle(tx, ty, rad, 2.2f, activeBorder, 48);
+
+            // Radar scan wave sweep
+            float sweepRad = fmodf(m_totalTime * 95.0f, rad);
+            float sweepAlpha = (1.0f - (sweepRad / rad)) * 0.35f;
+            Sprite_DrawCircle(tx, ty, sweepRad, 1.5f, { 0.35f, 1.0f, 0.70f, sweepAlpha }, 36);
+
+            // Status Badge above Turret
+            DrawMatrixString(tx - 42.0f, ty - 38.0f, "[ TARET AKTIF ]", 1.4f, m_texLaser, { 0.35f, 1.0f, 0.60f, 0.95f });
+        }
+        else
+        {
+            // Standby perimeter ring
+            Sprite_DrawCircle(tx, ty, rad, 1.2f, { 0.35f, 0.65f, 0.90f, 0.25f }, 48);
+
+            // Standby Status Badge
+            DrawMatrixString(tx - 36.0f, ty - 38.0f, "[ ALANA GIR ]", 1.3f, m_texLaser, { 0.60f, 0.75f, 0.95f, 0.55f });
+        }
+
+        // B. Mechanical Base Sentry Platform
+        Sprite_DrawCircle(tx, ty, 28.0f, 2.5f, { 0.15f, 0.22f, 0.35f, 0.90f }, 24);
+        DirectX::XMFLOAT4 coreCol = turret.isPlayerInZone
+            ? DirectX::XMFLOAT4(0.30f, 1.0f, 0.65f, 0.90f)
+            : DirectX::XMFLOAT4(0.35f, 0.65f, 0.95f, 0.50f);
+        Sprite_DrawCircle(tx, ty, 14.0f, 1.8f, coreCol, 16);
+
+        // C. Turret Sprite (asset/taret.png)
+        float tSize = 46.0f;
+        if (m_texTaret != -1)
+        {
+            Sprite_Draw(m_texTaret, tx - tSize * 0.5f, ty - tSize * 0.5f, tSize, tSize,
+                0, 0, Texture_GetWidth(m_texTaret), Texture_GetHeight(m_texTaret),
+                turret.rotation, { 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+        else
+        {
+            Sprite_DrawRect(tx - 12.0f, ty - 12.0f, 24.0f, 24.0f, { 0.15f, 0.25f, 0.35f, 0.95f });
+            Sprite_DrawRectBorder(tx - 12.0f, ty - 12.0f, 24.0f, 24.0f, 2.0f, coreCol);
+        }
+    }
+
+    // 8. Draw Active Lasers (Multi-pass glowing beam)
+    for (const auto& laser : m_lasers)
+    {
+        float startX = laser.start.x + camX;
+        float startY = laser.start.y + camY;
+        float endX = laser.end.x + camX;
+        float endY = laser.end.y + camY;
+
+        DirectX::XMFLOAT4 glowCol = laser.color;
+        glowCol.w = 0.35f;
+        float outerThick = m_isOvercharged ? 16.0f : 10.0f;
+        float midThick = m_isOvercharged ? 9.0f : 6.0f;
+        float coreThick = m_isOvercharged ? 4.0f : 2.5f;
+
+        // Layer 1: Outer glow aura
+        Sprite_DrawLine(startX, startY, endX, endY, outerThick, glowCol);
+
+        // Layer 2: Main colored plasma beam
+        Sprite_DrawLine(startX, startY, endX, endY, midThick, laser.color);
+
+        // Layer 3: Intense white energy core
+        Sprite_DrawLine(startX, startY, endX, endY, coreThick, { 1.0f, 1.0f, 1.0f, 0.95f });
+
+        // Contact sparkle at target point
+        if (m_texLaserHit != -1)
+        {
+            int frame = (int)(m_totalTime * 24.0f) % 8;
+            int col = frame % 4;
+            int row = frame / 4;
+            int fW = 384;
+            int fH = 512;
+            float hitW = m_isOvercharged ? 48.0f : 36.0f;
+            float hitH = m_isOvercharged ? 64.0f : 48.0f;
+            Sprite_Draw(m_texLaserHit, endX - hitW * 0.5f, endY - hitH * 0.5f, hitW, hitH,
+                col * fW, row * fH, fW, fH);
+        }
+    }
+
+    // 9. Draw Circular Shockwaves (Halka / Rings)
+    for (const auto& sw : m_shockwaves)
+    {
+        float alpha = 1.0f - (sw.lifetime / sw.maxLifetime);
+        alpha = std::clamp(alpha, 0.0f, 1.0f);
+        float rad = sw.currentRadius;
+
+        // Primary outer shockwave ring
+        Sprite_DrawCircle(sw.center.x + camX, sw.center.y + camY, rad, 3.5f, { 0.35f, 0.95f, 1.0f, alpha }, 48);
+
+        // Secondary inner glowing ring
+        if (rad > 15.0f)
+        {
+            Sprite_DrawCircle(sw.center.x + camX, sw.center.y + camY, rad * 0.85f, 2.0f, { 0.70f, 1.0f, 1.0f, alpha * 0.6f }, 36);
+        }
+    }
+
+    // 10. Draw VFXs
+    for (const auto& vfx : m_vfxs)
+    {
+        if (vfx.isSpriteSheet)
+        {
+            int col = vfx.currentFrame % 4;
+            int row = vfx.currentFrame / 4;
+            int fW = 384;
+            int fH = 512;
+            float w = (float)fW * vfx.scale;
+            float h = (float)fH * vfx.scale;
+            Sprite_Draw(m_texLaserHit, vfx.position.x + camX - w * 0.5f, vfx.position.y + camY - h * 0.5f, w, h,
+                col * fW, row * fH, fW, fH);
+        }
+        else if (vfx.isMultiTexture)
+        {
+            int tex = vfx.textureSequence[vfx.currentFrame];
+            float w = 128.0f * vfx.scale;
+            float h = 128.0f * vfx.scale;
+            Sprite_Draw(tex, vfx.position.x + camX - w * 0.5f, vfx.position.y + camY - h * 0.5f, w, h);
+        }
+    }
+
+    // 11. Draw Floating Damage Popups (World of Warcraft Style Combat Text)
+    if (m_texNumber != -1)
+    {
+        for (const auto& popup : m_damagePopups)
+        {
+            float t = popup.lifetime;
+            float maxT = popup.maxLifetime;
+
+            // WoW-style Elastic Pop Scale Animation:
+            // High energy initial punch in first 0.12s, then settles with elastic spring
+            float curScale = popup.baseScale;
+            if (t < 0.12f)
+            {
+                float popFactor = 1.0f + (0.12f - t) * 7.5f; // Starts up to 1.9x
+                curScale *= popFactor;
+            }
+
+            // Alpha smooth fade-out in the last 40% of lifetime
+            float alpha = 1.0f;
+            if (t > maxT * 0.55f)
+            {
+                float fadeProgress = (t - maxT * 0.55f) / (maxT * 0.45f);
+                alpha = std::clamp(1.0f - fadeProgress * fadeProgress, 0.0f, 1.0f);
+            }
+
+            DirectX::XMFLOAT4 col = popup.color;
+            col.w = alpha;
+
+            DrawDamageNumber(popup.position.x + camX, popup.position.y + camY, popup.damageAmount, curScale, m_texNumber, col, popup.isCritical, popup.isWeakpoint, m_texLaser);
+        }
+    }
+
+    // 11b. Draw Anomalous & Treasure Signal Banners
+    if (m_anomalousWarningDisplayTimer > 0.0f)
+    {
+        float bannerW = 600.0f;
+        float bannerH = 40.0f;
+        float bannerX = (float)SCREEN_WIDTH * 0.5f - bannerW * 0.5f;
+        float bannerY = 85.0f;
+        float pulse = sinf(m_totalTime * 10.0f) * 0.25f + 0.75f;
+
+        Sprite_DrawRect(bannerX, bannerY, bannerW, bannerH, { 0.25f, 0.18f, 0.06f, 0.95f });
+        Sprite_DrawRectBorder(bannerX, bannerY, bannerW, bannerH, 2.0f, { 1.0f, 0.85f, 0.25f, pulse });
+        DrawMatrixString(bannerX + 24.0f, bannerY + 10.0f, "! ANOMALOUS SIGNAL DETECTED: GOLDEN KEY ASTEROID !", 2.0f, m_texLaser, { 1.0f, 0.90f, 0.35f, 1.0f });
+    }
+    else if (m_stats.treasureSignal)
+    {
+        bool foundRich = false;
+        for (const auto& ast : m_asteroids)
+        {
+            if (!ast.destroyed && !ast.isBoss && (ast.isAnomalousSignal || ast.resourceAmount >= 15))
+            {
+                foundRich = true;
+                break;
+            }
+        }
+        if (foundRich)
+        {
+            float pulse = sinf(m_totalTime * 6.0f) * 0.20f + 0.80f;
+            float bW = 420.0f;
+            float bH = 30.0f;
+            float bX = (float)SCREEN_WIDTH * 0.5f - bW * 0.5f;
+            float bY = 88.0f;
+            Sprite_DrawRect(bX, bY, bW, bH, { 0.08f, 0.18f, 0.22f, 0.85f });
+            Sprite_DrawRectBorder(bX, bY, bW, bH, 1.5f, { 0.35f, 0.95f, 0.85f, pulse });
+            DrawMatrixString(bX + 16.0f, bY + 7.0f, "* HAZINE SINYALI: ZENGIN DAMAR TESPIT EDILDI *", 1.5f, m_texLaser, { 0.40f, 1.0f, 0.85f, 1.0f });
+        }
+    }
+
+    // 12. HUD Elements
+    // Top Left: Reishi Counts
+    DrawMatrixString(40.0f, 25.0f, "REISHI", 2.5f, m_texLaser, { 0.6f, 0.9f, 1.0f, 1.0f });
+    DrawNumber(40.0f, 48.0f, m_reishiCount, 5, 18.0f, m_texNumber);
+
+    // Health Hearts under Reishi
+    if (m_texHeart != -1)
+    {
+        float heartSize = 26.0f;
+        float startX = 40.0f;
+        float startY = 82.0f;
+
+        for (int i = 0; i < m_stats.maxHealth; ++i)
+        {
+            float hX = startX + i * (heartSize + 6.0f);
+            DirectX::XMFLOAT4 hColor = (i < m_playerHealth)
+                ? DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f)
+                : DirectX::XMFLOAT4(0.25f, 0.25f, 0.25f, 0.40f);
+
+            Sprite_Draw(m_texHeart, hX, startY, heartSize, heartSize,
+                0, 0, Texture_GetWidth(m_texHeart), Texture_GetHeight(m_texHeart),
+                hColor);
+        }
+    }
+
+    // Top Right: Voyage Energy (Fuel)
+    DrawMatrixString(SCREEN_WIDTH - 240.0f, 30.0f, "VOYAGE ENERGY", 2.2f, m_texLaser, { 0.6f, 0.9f, 1.0f, 1.0f });
+    
+    // Fuel Bar
+    Sprite_Draw(m_texLaser, SCREEN_WIDTH - 240.0f, 55.0f, 200.0f, 16.0f, 768, 512, 10, 10, { 0.1f, 0.2f, 0.3f, 1.0f });
+    float fuelPct = m_fuel / m_stats.maxFuel;
+    if (fuelPct > 0.0f)
+    {
+        Sprite_Draw(m_texLaser, SCREEN_WIDTH - 240.0f, 55.0f, 200.0f * fuelPct, 16.0f, 768, 512, 10, 10, { 0.0f, 0.95f, 1.0f, 1.0f });
+    }
+    int fuelDisplayVal = (int)(fuelPct * 100.0f);
+    DrawNumber(SCREEN_WIDTH - 290.0f, 51.0f, fuelDisplayVal, 3, 16.0f, m_texNumber);
+
+    // Skill Bar HUD (Bottom Center, above Boss Meter)
+    DrawSkillBar();
+
+    // 13. Bottom Calamity Progress & Boss Encounter Bar
+    float meterY = SCREEN_HEIGHT - 54.0f;
+    float barW = (float)SCREEN_WIDTH - 80.0f;
+    float barH = 14.0f;
+    float barX = 40.0f;
+
+    // Left Title
+    DrawMatrixString(barX, meterY, "AFET SAYACI (CALAMITY PROGRESS)", 2.2f, m_texLaser, { 1.0f, 0.40f, 0.40f, 1.0f });
+
+    // Center Percentage
+    int calPercent = (int)(std::clamp(m_calamityFillDisplay, 0.0f, 1.0f) * 100.0f);
+    char pctBuf[32];
+    sprintf_s(pctBuf, "BOSS YAKLASIMI: %d%%", calPercent);
+    DrawMatrixString(SCREEN_WIDTH * 0.5f - 110.0f, meterY, pctBuf, 2.0f, m_texLaser, { 1.0f, 0.90f, 0.85f, 1.0f });
+
+    // Right Stage Indicator
+    char secBuf[32];
+    sprintf_s(secBuf, "SEKTOR %d", m_calamity.level);
+    DrawMatrixString(barX + barW - 120.0f, meterY, secBuf, 2.2f, m_texLaser, { 1.0f, 0.70f, 0.25f, 1.0f });
+
+    // Bar Background
+    Sprite_DrawRect(barX, meterY + 18.0f, barW, barH, { 0.16f, 0.06f, 0.08f, 0.92f });
+    Sprite_DrawRectBorder(barX, meterY + 18.0f, barW, barH, 2.0f, { 0.85f, 0.25f, 0.30f, 0.85f });
+
+    // Filled Bar
+    if (m_calamityFillDisplay > 0.001f)
+    {
+        float fillW = (barW - 4.0f) * std::clamp(m_calamityFillDisplay, 0.0f, 1.0f);
+        Sprite_DrawRect(barX + 2.0f, meterY + 20.0f, fillW, barH - 4.0f, { 0.95f, 0.20f, 0.25f, 1.0f });
+        // Leading edge glow
+        Sprite_DrawRect(barX + 2.0f + fillW - 4.0f, meterY + 20.0f, 4.0f, barH - 4.0f, { 1.0f, 0.90f, 0.80f, 1.0f });
+    }
+
+    // Boss Warning Flashing
+    if (m_bossWarningTimer > 0.0f)
+    {
+        if ((int)(m_bossWarningTimer * 4.0f) % 2 == 0)
+        {
+            DrawMatrixString(SCREEN_WIDTH * 0.5f - 240.0f, SCREEN_HEIGHT * 0.5f - 40.0f, "CALAMITY ENCOUNTER", 4.0f, m_texLaser, { 1.0f, 0.2f, 0.2f, 1.0f });
+            DrawMatrixString(SCREEN_WIDTH * 0.5f - 140.0f, SCREEN_HEIGHT * 0.5f + 10.0f, "WARNING WARNING", 3.0f, m_texLaser, { 1.0f, 0.2f, 0.2f, 1.0f });
+        }
+    }
+
+    // Ancient Chest Pause Modal
+    if (m_isChestModalActive)
+    {
+        DrawChestModal();
+    }
+
+    // End of Run summary modal
+    if (m_runState == RunState::RunEnded)
+    {
+        DrawRunSummary();
+    }
+}
+
+void Game::DrawChestModal()
+{
+    // Dim background overlay (Game paused)
+    Sprite_DrawRect(0.0f, 0.0f, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, { 0.03f, 0.02f, 0.05f, 0.86f });
+
+    float cardW = 540.0f;
+    float cardH = 340.0f;
+    float cardX = (float)SCREEN_WIDTH * 0.5f - cardW * 0.5f;
+    float cardY = (float)SCREEN_HEIGHT * 0.5f - cardH * 0.5f;
+
+    // Glowing Modal Frame
+    float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+    Sprite_DrawRect(cardX, cardY, cardW, cardH, { 0.09f, 0.06f, 0.12f, 0.98f });
+    Sprite_DrawRectBorder(cardX, cardY, cardW, cardH, 2.5f, { 1.0f, 0.85f, 0.25f, pulse });
+    Sprite_DrawRectBorder(cardX - 4.0f, cardY - 4.0f, cardW + 8.0f, cardH + 8.0f, 1.0f, { 1.0f, 0.85f, 0.25f, 0.35f });
+
+    // Chest Icon
+    float iconSize = 72.0f;
+    float iconX = cardX + cardW * 0.5f - iconSize * 0.5f;
+    float iconY = cardY + 28.0f;
+    if (m_texChest != -1)
+    {
+        Sprite_Draw(m_texChest, iconX, iconY, iconSize, iconSize,
+            0, 0, Texture_GetWidth(m_texChest), Texture_GetHeight(m_texChest), { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    // Title
+    DrawMatrixString(cardX + 90.0f, cardY + 115.0f, "KADIM UZAY SANDIGI BULUNDU!", 2.4f, m_texLaser, { 1.0f, 0.88f, 0.30f, 1.0f });
+
+    // Description
+    DrawMatrixString(cardX + 50.0f, cardY + 150.0f, "Icinde yuksek miktarda CPU, Disli, Vida ve Reishi sakli.", 1.7f, m_texLaser, { 0.85f, 0.88f, 0.92f, 0.9f });
+
+    // Status: Current keys
+    char keyBuf[48];
+    sprintf_s(keyBuf, "MEVCUT ANAHTAR: %d ADET", m_resources.key);
+    DirectX::XMFLOAT4 keyCol = (m_resources.key >= 1) ? DirectX::XMFLOAT4(0.35f, 0.95f, 0.55f, 1.0f) : DirectX::XMFLOAT4(0.95f, 0.35f, 0.35f, 1.0f);
+    DrawMatrixString(cardX + 175.0f, cardY + 185.0f, keyBuf, 1.9f, m_texLaser, keyCol);
+
+    // Buttons
+    float btnW = 220.0f;
+    float btnH = 50.0f;
+    float btnY = cardY + cardH - 75.0f;
+    float btn1X = cardX + 35.0f;
+    float btn2X = cardX + cardW - btnW - 35.0f;
+
+    bool canOpen = (m_resources.key >= 1);
+
+    // Button 1: Open with 1 Key
+    DirectX::XMFLOAT4 btn1Bg = canOpen ? DirectX::XMFLOAT4(0.18f, 0.28f, 0.15f, 0.95f) : DirectX::XMFLOAT4(0.12f, 0.10f, 0.12f, 0.8f);
+    DirectX::XMFLOAT4 btn1Border = canOpen ? DirectX::XMFLOAT4(0.40f, 1.0f, 0.60f, 1.0f) : DirectX::XMFLOAT4(0.40f, 0.35f, 0.40f, 0.6f);
+    Sprite_DrawRect(btn1X, btnY, btnW, btnH, btn1Bg);
+    Sprite_DrawRectBorder(btn1X, btnY, btnW, btnH, 2.0f, btn1Border);
+
+    if (canOpen)
+    {
+        DrawMatrixString(btn1X + 18.0f, btnY + 16.0f, "[ 1 ANAHTAR ILE AC (E) ]", 1.8f, m_texLaser, { 0.4f, 1.0f, 0.7f, 1.0f });
+    }
+    else
+    {
+        DrawMatrixString(btn1X + 16.0f, btnY + 16.0f, "[ YETERSIZ ANAHTAR ]", 1.8f, m_texLaser, { 0.6f, 0.5f, 0.5f, 0.7f });
+    }
+
+    // Button 2: Decline & Save Key
+    Sprite_DrawRect(btn2X, btnY, btnW, btnH, { 0.16f, 0.10f, 0.16f, 0.95f });
+    Sprite_DrawRectBorder(btn2X, btnY, btnW, btnH, 2.0f, { 0.85f, 0.45f, 0.45f, 0.9f });
+    DrawMatrixString(btn2X + 28.0f, btnY + 16.0f, "[ VAZGEC (ESC) ]", 1.8f, m_texLaser, { 0.95f, 0.75f, 0.75f, 1.0f });
+}
+
+void Game::DrawRunSummary()
+{
+    // Dim background overlay
+    Sprite_DrawRect(0.0f, 0.0f, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, { 0.04f, 0.02f, 0.06f, 0.84f });
+
+    // Center Modal Card
+    float cardW = 680.0f;
+    float cardH = 460.0f;
+    float cardX = (float)SCREEN_WIDTH * 0.5f - cardW * 0.5f;
+    float cardY = (float)SCREEN_HEIGHT * 0.5f - cardH * 0.5f;
+
+    DirectX::XMFLOAT4 borderCol = m_bossVictory
+        ? DirectX::XMFLOAT4(1.0f, 0.85f, 0.25f, 0.95f) // Radiant Gold
+        : (m_playerHealth <= 0)
+            ? DirectX::XMFLOAT4(0.95f, 0.30f, 0.30f, 0.95f) // Crimson
+            : DirectX::XMFLOAT4(0.35f, 0.85f, 1.0f, 0.95f); // Cyan
+
+    // Modal background & glowing border
+    Sprite_DrawRect(cardX, cardY, cardW, cardH, { 0.09f, 0.06f, 0.13f, 0.98f });
+    Sprite_DrawRectBorder(cardX, cardY, cardW, cardH, 2.5f, borderCol);
+    Sprite_DrawRectBorder(cardX - 4.0f, cardY - 4.0f, cardW + 8.0f, cardH + 8.0f, 1.0f, { borderCol.x, borderCol.y, borderCol.z, 0.35f });
+
+    // Top Header Banner
+    if (m_bossVictory)
+    {
+        DrawMatrixString(cardX + 45.0f, cardY + 24.0f, "SEKTOR ZAFERI: BOSS ETKISIZ HALE GETIRILDI!", 2.7f, m_texLaser, { 1.0f, 0.88f, 0.25f, 1.0f });
+    }
+    else if (m_playerHealth <= 0)
+    {
+        DrawMatrixString(cardX + 48.0f, cardY + 24.0f, "GEMI HASAR GORDU: KURTARMA MODULU DEVREDE", 2.6f, m_texLaser, { 1.0f, 0.35f, 0.35f, 1.0f });
+    }
+    else
+    {
+        DrawMatrixString(cardX + 70.0f, cardY + 24.0f, "SEFER TAMAMLANDI: GEMI USSE DONDU", 2.8f, m_texLaser, { 0.40f, 0.95f, 1.0f, 1.0f });
+    }
+
+    DrawMatrixString(cardX + 165.0f, cardY + 58.0f, "TOPLANAN SEFER GANIMETI VE RAPORU", 1.8f, m_texLaser, { 0.85f, 0.85f, 0.90f, 0.85f });
+    Sprite_DrawRect(cardX + 24.0f, cardY + 84.0f, cardW - 48.0f, 1.5f, { 0.35f, 0.45f, 0.60f, 0.5f });
+
+    // ==========================================
+    // 5 RESOURCE LOOT CARDS (Reishi, Vida, Dişli, CPU, Key)
+    // ==========================================
+    float startLootX = cardX + 28.0f;
+    float lootY = cardY + 104.0f;
+    float lootCardW = 112.0f;
+    float lootCardH = 110.0f;
+    float lootGap = 16.0f;
+
+    struct LootItem
+    {
+        int type;
+        const char* label;
+        int amount;
+        int textureId;
+        DirectX::XMFLOAT4 col;
+    };
+
+    const LootItem loot[5] = {
+        { 0, "REISHI", m_runStats.reishiCollected, m_texResources, { 0.70f, 0.35f, 1.0f, 1.0f } },
+        { 1, "VIDA", m_runStats.vidaCollected, m_texVida, { 0.40f, 0.85f, 1.0f, 1.0f } },
+        { 2, "DISLI", m_runStats.disliCollected, m_texDisli, { 1.0f, 0.65f, 0.20f, 1.0f } },
+        { 3, "CPU", m_runStats.cpuCollected, m_texCpu, { 0.35f, 0.95f, 1.0f, 1.0f } },
+        { 4, "ANAHTAR", m_runStats.keyCollected, m_texKey, { 1.0f, 0.85f, 0.25f, 1.0f } }
+    };
+
+    for (int i = 0; i < 5; ++i)
+    {
+        float lx = startLootX + i * (lootCardW + lootGap);
+        Sprite_DrawRect(lx, lootY, lootCardW, lootCardH, { 0.14f, 0.10f, 0.18f, 0.95f });
+        Sprite_DrawRectBorder(lx, lootY, lootCardW, lootCardH, 1.5f, loot[i].col);
+
+        // Icon
+        float iconSize = 34.0f;
+        float iconCenterX = lx + lootCardW * 0.5f;
+        float iconCenterY = lootY + 28.0f;
+
+        if (loot[i].type == 0 && m_texResources != -1)
+        {
+            Sprite_Draw(m_texResources, iconCenterX - 14.0f, iconCenterY - 18.0f, 28.0f, 36.0f, 0, 0, 256, 341, { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+        else if (loot[i].textureId != -1)
+        {
+            Sprite_Draw(loot[i].textureId, iconCenterX - iconSize * 0.5f, iconCenterY - iconSize * 0.5f, iconSize, iconSize,
+                0, 0, Texture_GetWidth(loot[i].textureId), Texture_GetHeight(loot[i].textureId), { 1.0f, 1.0f, 1.0f, 1.0f });
+        }
+
+        // Label
+        DrawMatrixString(lx + (lootCardW - (float)strlen(loot[i].label) * 8.0f) * 0.5f, lootY + 54.0f, loot[i].label, 1.6f, m_texLaser, { 0.85f, 0.85f, 0.90f, 0.9f });
+
+        // Count: "+X"
+        char cntBuf[16];
+        sprintf_s(cntBuf, "+%d", loot[i].amount);
+        DirectX::XMFLOAT4 numCol = (loot[i].amount > 0)
+            ? DirectX::XMFLOAT4(0.35f, 0.95f, 0.55f, 1.0f) // Bright green
+            : DirectX::XMFLOAT4(0.55f, 0.55f, 0.60f, 0.7f);
+
+        DrawMatrixString(lx + (lootCardW - (float)strlen(cntBuf) * 10.0f) * 0.5f, lootY + 76.0f, cntBuf, 2.2f, m_texLaser, numCol);
+    }
+
+    // ==========================================
+    // COMBAT & MINING STATS CARDS (Images + "x5" counts)
+    // ==========================================
+    float statsY = cardY + 230.0f;
+    float statCardW = 150.0f;
+    float statCardH = 76.0f;
+    float statGap = 24.0f;
+    float startStatsX = cardX + (cardW - (statCardW * 2.0f + statGap)) * 0.5f;
+
+    // Card 1: Enemy Drone
+    float s1X = startStatsX;
+    Sprite_DrawRect(s1X, statsY, statCardW, statCardH, { 0.16f, 0.08f, 0.12f, 0.95f });
+    Sprite_DrawRectBorder(s1X, statsY, statCardW, statCardH, 1.5f, { 1.0f, 0.30f, 0.35f, 0.8f });
+
+    if (m_texEnemy1 != -1)
+    {
+        Sprite_Draw(m_texEnemy1, s1X + 16.0f, statsY + 14.0f, 48.0f, 48.0f,
+            0, 0, Texture_GetWidth(m_texEnemy1), Texture_GetHeight(m_texEnemy1), { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+    char enemyBuf[16];
+    sprintf_s(enemyBuf, "x%d", m_runStats.enemiesKilled);
+    DrawMatrixString(s1X + 76.0f, statsY + 26.0f, enemyBuf, 2.8f, m_texLaser, { 1.0f, 0.35f, 0.35f, 1.0f });
+
+    // Card 2: Asteroid
+    float s2X = startStatsX + statCardW + statGap;
+    Sprite_DrawRect(s2X, statsY, statCardW, statCardH, { 0.10f, 0.12f, 0.18f, 0.95f });
+    Sprite_DrawRectBorder(s2X, statsY, statCardW, statCardH, 1.5f, { 0.35f, 0.80f, 1.0f, 0.8f });
+
+    if (m_texAsteroid != -1)
+    {
+        Sprite_Draw(m_texAsteroid, s2X + 16.0f, statsY + 14.0f, 48.0f, 48.0f,
+            0, 0, Texture_GetWidth(m_texAsteroid), Texture_GetHeight(m_texAsteroid), { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+    char astBuf[16];
+    sprintf_s(astBuf, "x%d", m_runStats.asteroidsMined);
+    DrawMatrixString(s2X + 76.0f, statsY + 26.0f, astBuf, 2.8f, m_texLaser, { 0.40f, 0.90f, 1.0f, 1.0f });
+
+    // Divider Line
+    Sprite_DrawRect(cardX + 24.0f, cardY + 320.0f, cardW - 48.0f, 1.5f, { 0.35f, 0.45f, 0.60f, 0.5f });
+
+    // ==========================================
+    // BOTTOM PROCEED BUTTON (Market / Upgrade Tree)
+    // ==========================================
+    float btnW = 440.0f;
+    float btnH = 50.0f;
+    float btnX = cardX + (cardW - btnW) * 0.5f;
+    float btnY = cardY + 350.0f;
+
+    float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+    DirectX::XMFLOAT4 btnBg{ 0.20f, 0.12f, 0.25f, 0.95f };
+    DirectX::XMFLOAT4 btnBorder{ borderCol.x, borderCol.y, borderCol.z, pulse };
+
+    Sprite_DrawRect(btnX, btnY, btnW, btnH, btnBg);
+    Sprite_DrawRectBorder(btnX, btnY, btnW, btnH, 2.0f, btnBorder);
+
+    DrawMatrixString(btnX + 22.0f, btnY + 16.0f, "[ DEVAM ET / MARKET VE YUKSELTMELER ]", 2.0f, m_texLaser, { 1.0f, 0.95f, 0.85f, 1.0f });
+
+    // Small help tip below
+    DrawMatrixString(cardX + 210.0f, cardY + 416.0f, "( TIKLA VEYA SPACE TUSUNA BAS )", 1.5f, m_texLaser, { 0.70f, 0.70f, 0.75f, 0.7f });
+}
+
+void Game::DrawUpgrade()
+{
+    m_upgradeTree.Draw(m_resources, m_upgradeTree.GetCurrentSectorIndex());
+}
