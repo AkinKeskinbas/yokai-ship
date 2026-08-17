@@ -1313,7 +1313,7 @@ bool UpgradeTree::HasPrerequisites(int nodeId) const
     if (!node) return false;
     if (node->isCenterHub) return true;
     if (node->prerequisiteIds.empty()) return true;
-
+     
     // For Hybrid nodes (isHybrid == true): require ALL prerequisites!
     if (node->isHybrid)
     {

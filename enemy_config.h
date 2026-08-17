@@ -122,25 +122,28 @@ namespace EnemyConfig
         int   collisionDamage       = 1;        // Çarpışma hasarı
 
         // Saldırı Döngüsü ve Faz Süreleri
-        float glideDuration         = 3.8f;     // Tepede sağa-sola süzülme süresi
-        float aimTrackingDuration   = 1.8f;     // Oyuncuyu hedefleme çizgisiyle takip etme süresi
-        float aimTrackingTurnSpeed  = 2.2f;     // Hedefleme aşamasındaki takip hızı (rad/s)
-        float aimLockPauseDuration  = 0.65f;    // KİLİTLENME VE KAÇIŞ ANI: Çizgi parlar ve sabitlenir, oyuncuya kaçma fırsatı verir (saniye)
-        float laserFiringDuration   = 3.4f;     // Devasa mor lazer ateşleme süresi
-        float laserTrackingTurnSpeed= 0.48f;    // Gecikmeli ağır takip hızı: Oyuncu hareket ettiği sürece lazer arkasında kalır (kaçabilir), sabit durursa lazer yetişip hasar verir (rad/s)
-        float laserCooldownDuration = 1.2f;     // Saldırı bittikten sonraki dinlenme süresi
+        float glideDuration             = 3.5f;     // Tepede sağa-sola süzülme süresi
+        float aimTrackingDuration       = 1.4f;     // Oyuncuyu hedefleme çizgisiyle takip etme süresi
+        float aimTrackingTurnSpeed      = 2.2f;     // Hedefleme aşamasındaki takip hızı (rad/s)
+        float aimLockPauseDuration      = 0.60f;    // KİLİTLENME VE KAÇIŞ ANI: Çizgi parlar ve sabitlenir, oyuncuya kaçma fırsatı verir (saniye)
+        float laserFiringDuration       = 2.2f;     // Toplam mor lazer ateşleme süresi
+        float laserActiveTrackingDuration= 1.3f;    // Lazer ateşlendikten sonra oyuncuyu takip etme süresi (bu süreden sonra lazer sabitlenir, oyuncu köşeye sıkışmaz)
+        float laserTrackingTurnSpeed    = 0.52f;    // Gecikmeli ağır takip hızı: Oyuncu hareket ettiği sürece kaçabilir (rad/s)
+        float laserCooldownDuration     = 1.4f;     // Saldırı bittikten sonraki dinlenme süresi
 
         // Lazer Parametreleri
-        float laserDamageInterval   = 0.25f;    // Lazere temas edilince hasar yeme sıklığı (saniye)
-        float laserBeamWidth        = 24.0f;    // Lazer ışınının çarpışma kalınlığı (piksel)
+        float laserDamageInterval       = 0.25f;    // Lazere temas edilince hasar yeme sıklığı (saniye)
+        float laserBeamWidth            = 24.0f;    // Lazer ışınının çarpışma kalınlığı (piksel)
+        float laserMinAngle             = 0.35f;    // Lazerin minimum açısı (~20 derece - ekranın üstüne çıkmasını engeller)
+        float laserMaxAngle             = 2.79f;    // Lazerin maksimum açısı (~160 derece - ekranın üstüne çıkmasını engeller)
 
         // Boss 3 Ödül / Drop Miktarları
-        int   reishiDropCount       = 45;
-        int   reishiPerDrop         = 6;        // Toplam 270 Reishi
-        int   vidaDropCount         = 16;
-        int   disliDropCount        = 10;
-        int   cpuDropCount          = 6;
-        int   keyDropCount          = 3;        // 3 Sektör Anahtarı
+        int   reishiDropCount           = 45;
+        int   reishiPerDrop             = 6;        // Toplam 270 Reishi
+        int   vidaDropCount             = 16;
+        int   disliDropCount            = 10;
+        int   cpuDropCount              = 6;
+        int   keyDropCount              = 3;        // 3 Sektör Anahtarı
     };
     inline constexpr Boss3Stats Boss3{};
 }

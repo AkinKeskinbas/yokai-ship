@@ -1578,6 +1578,8 @@ void Game::UpdateGameplay(float deltaTime)
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 4.0f) * 2.0f;
 
                     float targetAngle = atan2f(m_playerPos.y - eyePos.y, m_playerPos.x - eyePos.x);
+                    targetAngle = std::clamp(targetAngle, EnemyConfig::Boss3.laserMinAngle, EnemyConfig::Boss3.laserMaxAngle);
+
                     float diff = targetAngle - it->bossLaserAngle;
                     while (diff > PI)  diff -= 2.0f * PI;
                     while (diff < -PI) diff += 2.0f * PI;
@@ -1591,6 +1593,7 @@ void Game::UpdateGameplay(float deltaTime)
                     {
                         it->bossLaserAngle += (diff > 0.0f ? turnStep : -turnStep);
                     }
+                    it->bossLaserAngle = std::clamp(it->bossLaserAngle, EnemyConfig::Boss3.laserMinAngle, EnemyConfig::Boss3.laserMaxAngle);
 
                     it->bossPhaseTimer -= deltaTime;
                     if (it->bossPhaseTimer <= 0.0f)
@@ -1625,20 +1628,27 @@ void Game::UpdateGameplay(float deltaTime)
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 12.0f) * 2.0f;
 
-                    // Slowly and heavily turn beam towards player's position with delay (player can easily outrun by moving)
-                    float targetAngle = atan2f(m_playerPos.y - eyePos.y, m_playerPos.x - eyePos.x);
-                    float diff = targetAngle - it->bossLaserAngle;
-                    while (diff > PI)  diff -= 2.0f * PI;
-                    while (diff < -PI) diff += 2.0f * PI;
+                    // Only track during the first laserActiveTrackingDuration (e.g. 1.3s), then hold angle fixed
+                    float timeElapsedInFire = EnemyConfig::Boss3.laserFiringDuration - it->bossPhaseTimer;
+                    if (timeElapsedInFire <= EnemyConfig::Boss3.laserActiveTrackingDuration)
+                    {
+                        float targetAngle = atan2f(m_playerPos.y - eyePos.y, m_playerPos.x - eyePos.x);
+                        targetAngle = std::clamp(targetAngle, EnemyConfig::Boss3.laserMinAngle, EnemyConfig::Boss3.laserMaxAngle);
 
-                    float turnStep = EnemyConfig::Boss3.laserTrackingTurnSpeed * deltaTime;
-                    if (fabsf(diff) <= turnStep)
-                    {
-                        it->bossLaserAngle = targetAngle;
-                    }
-                    else
-                    {
-                        it->bossLaserAngle += (diff > 0.0f ? turnStep : -turnStep);
+                        float diff = targetAngle - it->bossLaserAngle;
+                        while (diff > PI)  diff -= 2.0f * PI;
+                        while (diff < -PI) diff += 2.0f * PI;
+
+                        float turnStep = EnemyConfig::Boss3.laserTrackingTurnSpeed * deltaTime;
+                        if (fabsf(diff) <= turnStep)
+                        {
+                            it->bossLaserAngle = targetAngle;
+                        }
+                        else
+                        {
+                            it->bossLaserAngle += (diff > 0.0f ? turnStep : -turnStep);
+                        }
+                        it->bossLaserAngle = std::clamp(it->bossLaserAngle, EnemyConfig::Boss3.laserMinAngle, EnemyConfig::Boss3.laserMaxAngle);
                     }
 
                     // Continuous beam camera rumble
