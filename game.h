@@ -125,10 +125,14 @@ struct PlayerStats
 enum class BossPhase
 {
     Enter,          // Spawning and descending onto the battlefield
-    Patrol,         // Moving and occasionally firing standard projectiles
-    AlarmWarning,   // Stopped in place, pulsing warning alarm, charging spiral barrage
-    SpiralAttack,   // Rapid spinning and shooting spiral projectile streams from 4 nozzles
-    Cooldown        // Brief recovery before resuming Patrol
+    Patrol,         // Moving and occasionally firing standard projectiles (Boss 2)
+    AlarmWarning,   // Stopped in place, pulsing warning alarm, charging spiral barrage (Boss 2)
+    SpiralAttack,   // Rapid spinning and shooting spiral projectile streams from 4 nozzles (Boss 2)
+    Cooldown,       // Brief recovery before resuming Patrol
+    GlideTop,       // Boss 3: Glides horizontally across top of screen
+    MoveToCenter,   // Boss 3: Moves smoothly to top center
+    LaserCharge,    // Boss 3: Eye flares with purple energy & warning tracking beam
+    LaserSweep      // Boss 3: Sweeps bright purple death laser left to right (slow to fast)
 };
 
 // Enemy Projectile (4-way bullets from enemies and boss spirals)
@@ -184,17 +188,22 @@ struct Asteroid
     int resourceAmount = 0;
     int visualRow = 0;
     int visualCol = 0;
-    bool isBoss = false;     // True if Calamity Boss (boss1.png / boss2.png)
-    int bossType = 1;        // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer)
+    bool isBoss = false;     // True if Calamity Boss (boss1.png / boss2.png / boss3.png)
+    int bossType = 1;        // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai)
     bool destroyed = false;
     float flashTimer = 0.0f; // For hit flash feedback
 
-    // Boss 2 AI State Machine & Timers
+    // Boss 2 & 3 AI State Machine & Timers
     BossPhase bossPhase = BossPhase::Enter;
     float bossPhaseTimer = 0.0f;
     float bossShootTimer = 0.0f;
     float bossSpiralFireTimer = 0.0f;
     DirectX::XMFLOAT2 bossTargetPos{ 800.0f, 220.0f };
+
+    // Boss 3 Purple Sweeping Laser state
+    float bossLaserAngle = 1.5707963f; // PI / 2 (pointing straight down initially)
+    float bossLaserSweepFreq = 1.0f;
+    float bossLaserDamageTimer = 0.0f;
 
     // Weakpoint & Anomalies
     bool hasWeakpoint = false;
@@ -419,6 +428,7 @@ private:
     int m_texAsteroid = -1;       // astroid.png
     int m_texBoss1 = -1;          // boss1.png
     int m_texBoss2 = -1;          // boss2.png
+    int m_texBoss3 = -1;          // boss3.png
     int m_texBossProjectile = -1; // projectile.png
     int m_texEnemy1 = -1;         // enemy1.png
     int m_texEnemy1Bullet = -1;   // enemy1bullet.png

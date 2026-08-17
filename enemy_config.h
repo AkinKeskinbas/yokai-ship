@@ -16,7 +16,7 @@ namespace EnemyConfig
     // Oyun başlar başlamaz test için Boss 2'nin gelmesini sağlar.
     // Test bittiğinde 'TEST_SPAWN_BOSS2_AT_START = false;' yapabilirsiniz.
     inline constexpr bool TEST_SPAWN_BOSS2_AT_START = true;
-    inline constexpr int  TEST_BOSS_TYPE             = 2;     // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer)
+    inline constexpr int  TEST_BOSS_TYPE             = 3;     // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai)
 
     // ========================================================================
     // 2. NORMAL DÜŞMAN DRONE AYARLARI (ENEMY DRONE 1 CONFIG)
@@ -107,6 +107,42 @@ namespace EnemyConfig
         int   keyDropCount      = 2;        // 2 Sektör Anahtarı
     };
     inline constexpr Boss2Stats Boss2{};
+
+    // ========================================================================
+    // 5. BOSS 3 AYARLARI (BOSS 3 - TORII YOKAI / PURPLE SWEEPING LASER)
+    // ========================================================================
+    struct Boss3Stats
+    {
+        float baseHp                = 1200.0f;  // Sektör 3 Canı
+        float hpPerSectorLevel      = 450.0f;   // Sektör başına ek can
+        float scale                 = 0.30f;    // Görsel boyutu (boss3.png)
+        float radius                = 92.0f;    // Çarpışma yarıçapı
+        float moveSpeed             = 120.0f;   // Tepede süzülme hızı
+        float hoverY                = 150.0f;   // Tepedeki Y yüksekliği
+        int   collisionDamage       = 1;        // Çarpışma hasarı
+
+        // Faz Süreleri
+        float glideDuration         = 4.5f;     // Tepede sağa-sola süzülme süresi
+        float centerChargeDuration  = 1.5f;     // Merkeze gelip mor lazeri şarj etme / uyarı çizgisi süresi
+        float laserSweepDuration    = 5.5f;     // Mor lazeri sağa-sola süpürme süresi (yavaştan hızlıya)
+        float laserCooldownDuration = 1.0f;     // Lazer bittikten sonraki dinlenme süresi
+
+        // Lazer Parametreleri
+        float laserDamageInterval   = 0.35f;    // Lazere temas edilince hasar yeme sıklığı (saniye)
+        float laserBeamWidth        = 28.0f;    // Lazer ışınının kalınlığı (piksel)
+        float laserMaxAngleOffset   = 1.15f;    // Sağa ve sola maksimum açılma açısı (radyan, ~66 derece)
+        float sweepStartFrequency   = 1.2f;     // Lazer süpürme başlangıç hızı (yavaş)
+        float sweepEndFrequency     = 3.8f;     // Lazer süpürme bitiş hızı (hızlı)
+
+        // Boss 3 Ödül / Drop Miktarları
+        int   reishiDropCount       = 45;
+        int   reishiPerDrop         = 6;        // Toplam 270 Reishi
+        int   vidaDropCount         = 16;
+        int   disliDropCount        = 10;
+        int   cpuDropCount          = 6;
+        int   keyDropCount          = 3;        // 3 Sektör Anahtarı
+    };
+    inline constexpr Boss3Stats Boss3{};
 }
 
 #endif // ENEMY_CONFIG_H

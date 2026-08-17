@@ -240,6 +240,7 @@ bool Game::Initialize(HWND hWnd)
     m_texAsteroid = Texture_Load(L"asset/astroid.png");
     m_texBoss1 = Texture_Load(L"asset/boss1.png");
     m_texBoss2 = Texture_Load(L"asset/boss2.png");
+    m_texBoss3 = Texture_Load(L"asset/boss3.png");
     m_texBossProjectile = Texture_Load(L"asset/projectile.png");
     m_texEnemy1 = Texture_Load(L"asset/enemy1.png");
     m_texEnemy1Bullet = Texture_Load(L"asset/enemy1bullet.png");
@@ -1183,16 +1184,16 @@ void Game::UpdateGameplay(float deltaTime)
                     if (m_soundShoot != -1) PlayAudio(m_soundShoot);
 
                     // Unlock next sector on the map!
-                    int defeatedLevel = (it->bossType == 2) ? 2 : m_calamity.level;
+                    int defeatedLevel = (it->bossType == 3) ? 3 : (it->bossType == 2) ? 2 : m_calamity.level;
                     m_upgradeTree.UnlockNextSector(defeatedLevel);
                     m_upgradeTree.SetCurrentSectorIndex(std::min(5, defeatedLevel + 1));
 
-                    int reishiDropCount = (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
-                    int reishiPerDrop   = (it->bossType == 2) ? EnemyConfig::Boss2.reishiPerDrop   : EnemyConfig::Boss1.reishiPerDrop;
-                    int vidaDropCount   = (it->bossType == 2) ? EnemyConfig::Boss2.vidaDropCount   : EnemyConfig::Boss1.vidaDropCount;
-                    int disliDropCount  = (it->bossType == 2) ? EnemyConfig::Boss2.disliDropCount  : EnemyConfig::Boss1.disliDropCount;
-                    int cpuDropCount    = (it->bossType == 2) ? EnemyConfig::Boss2.cpuDropCount    : EnemyConfig::Boss1.cpuDropCount;
-                    int keyDropCount    = (it->bossType == 2) ? EnemyConfig::Boss2.keyDropCount    : EnemyConfig::Boss1.keyDropCount;
+                    int reishiDropCount = (it->bossType == 3) ? EnemyConfig::Boss3.reishiDropCount : (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
+                    int reishiPerDrop   = (it->bossType == 3) ? EnemyConfig::Boss3.reishiPerDrop   : (it->bossType == 2) ? EnemyConfig::Boss2.reishiPerDrop   : EnemyConfig::Boss1.reishiPerDrop;
+                    int vidaDropCount   = (it->bossType == 3) ? EnemyConfig::Boss3.vidaDropCount   : (it->bossType == 2) ? EnemyConfig::Boss2.vidaDropCount   : EnemyConfig::Boss1.vidaDropCount;
+                    int disliDropCount  = (it->bossType == 3) ? EnemyConfig::Boss3.disliDropCount  : (it->bossType == 2) ? EnemyConfig::Boss2.disliDropCount  : EnemyConfig::Boss1.disliDropCount;
+                    int cpuDropCount    = (it->bossType == 3) ? EnemyConfig::Boss3.cpuDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.cpuDropCount    : EnemyConfig::Boss1.cpuDropCount;
+                    int keyDropCount    = (it->bossType == 3) ? EnemyConfig::Boss3.keyDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.keyDropCount    : EnemyConfig::Boss1.keyDropCount;
 
                     // 1. Reishi Crystals
                     for (int k = 0; k < reishiDropCount; ++k)
@@ -1499,6 +1500,151 @@ void Game::UpdateGameplay(float deltaTime)
                         it->bossPhase = BossPhase::Patrol;
                         it->bossPhaseTimer = EnemyConfig::Boss2.patrolDuration;
                         it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), RandomFloat(160.0f, 320.0f) };
+                    }
+                }
+            }
+            // Boss 3 (Torii Yokai) Custom AI & Sweeping Purple Death Laser Logic
+            else if (it->isBoss && it->bossType == 3)
+            {
+                // Central eye emitter position
+                DirectX::XMFLOAT2 eyePos = { it->position.x, it->position.y + 10.0f };
+
+                if (it->bossPhase == BossPhase::Enter)
+                {
+                    it->position.y += it->velocity.y * deltaTime;
+                    if (it->position.y >= EnemyConfig::Boss3.hoverY)
+                    {
+                        it->position.y = EnemyConfig::Boss3.hoverY;
+                        it->bossPhase = BossPhase::GlideTop;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.glideDuration;
+                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), EnemyConfig::Boss3.hoverY };
+                        it->velocity = { 0.0f, 0.0f };
+                    }
+                }
+                else if (it->bossPhase == BossPhase::GlideTop)
+                {
+                    // Gentle vertical levitation bobbing
+                    float hoverBob = sinf(m_totalTime * 2.8f) * 6.0f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + hoverBob;
+
+                    // Smooth horizontal glide across the top
+                    float bdx = it->bossTargetPos.x - it->position.x;
+                    if (fabsf(bdx) > 15.0f)
+                    {
+                        float dirX = (bdx > 0.0f) ? 1.0f : -1.0f;
+                        it->position.x += dirX * EnemyConfig::Boss3.moveSpeed * deltaTime;
+                    }
+                    else
+                    {
+                        // Pick new glide target on opposite side of screen
+                        float newX = (it->position.x < (float)SCREEN_WIDTH * 0.5f)
+                            ? RandomFloat((float)SCREEN_WIDTH * 0.55f, (float)SCREEN_WIDTH - 220.0f)
+                            : RandomFloat(220.0f, (float)SCREEN_WIDTH * 0.45f);
+                        it->bossTargetPos = { newX, EnemyConfig::Boss3.hoverY };
+                    }
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::MoveToCenter;
+                        it->bossTargetPos = { (float)SCREEN_WIDTH * 0.5f, EnemyConfig::Boss3.hoverY };
+                    }
+                }
+                else if (it->bossPhase == BossPhase::MoveToCenter)
+                {
+                    // Move directly to top center
+                    float bdx = it->bossTargetPos.x - it->position.x;
+                    float bdy = it->bossTargetPos.y - it->position.y;
+                    float bdist = sqrtf(bdx * bdx + bdy * bdy);
+
+                    if (bdist > 10.0f)
+                    {
+                        it->position.x += (bdx / bdist) * (EnemyConfig::Boss3.moveSpeed * 1.35f) * deltaTime;
+                        it->position.y += (bdy / bdist) * (EnemyConfig::Boss3.moveSpeed * 1.35f) * deltaTime;
+                    }
+                    else
+                    {
+                        it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                        it->position.y = EnemyConfig::Boss3.hoverY;
+                        it->bossPhase = BossPhase::LaserCharge;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.centerChargeDuration;
+                        it->bossLaserAngle = 1.5707963f; // 90 deg, pointing straight down
+                        TriggerCameraShake(0.35f, 4.5f);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::LaserCharge)
+                {
+                    // Stationary charge: Eye flares and charges with warning line pointing down
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 8.0f) * 2.0f;
+                    it->bossLaserAngle = 1.5707963f; // Centered downward
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::LaserSweep;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.laserSweepDuration;
+                        it->bossLaserDamageTimer = 0.0f;
+                        TriggerCameraShake(0.40f, 6.0f);
+                        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::LaserSweep)
+                {
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 12.0f) * 2.0f;
+
+                    // Progress 0.0 (start) to 1.0 (end)
+                    float progress = 1.0f - std::clamp(it->bossPhaseTimer / EnemyConfig::Boss3.laserSweepDuration, 0.0f, 1.0f);
+                    // Sweep frequency accelerates from sweepStartFrequency to sweepEndFrequency (slow to fast!)
+                    float currentFreq = EnemyConfig::Boss3.sweepStartFrequency + progress * (EnemyConfig::Boss3.sweepEndFrequency - EnemyConfig::Boss3.sweepStartFrequency);
+                    it->bossLaserSweepFreq = currentFreq;
+                    it->bossLaserAngle = 1.5707963f + sinf(m_totalTime * currentFreq) * EnemyConfig::Boss3.laserMaxAngleOffset;
+
+                    // Player Hitbox vs Sweeping Purple Laser Line Segment
+                    DirectX::XMFLOAT2 beamDir = { cosf(it->bossLaserAngle), sinf(it->bossLaserAngle) };
+                    float beamLen = 1400.0f;
+                    DirectX::XMFLOAT2 beamEnd = { eyePos.x + beamDir.x * beamLen, eyePos.y + beamDir.y * beamLen };
+
+                    float abX = beamEnd.x - eyePos.x;
+                    float abY = beamEnd.y - eyePos.y;
+                    float apX = m_playerPos.x - eyePos.x;
+                    float apY = m_playerPos.y - eyePos.y;
+                    float abLenSq = abX * abX + abY * abY;
+                    float t = (abLenSq > 0.001f) ? std::clamp((apX * abX + apY * abY) / abLenSq, 0.0f, 1.0f) : 0.0f;
+                    DirectX::XMFLOAT2 closestPt = { eyePos.x + t * abX, eyePos.y + t * abY };
+
+                    float dX = m_playerPos.x - closestPt.x;
+                    float dY = m_playerPos.y - closestPt.y;
+                    float distToBeam = sqrtf(dX * dX + dY * dY);
+
+                    float hitThreshold = (EnemyConfig::Boss3.laserBeamWidth * 0.5f) + m_playerHitboxRadius;
+                    if (distToBeam < hitThreshold)
+                    {
+                        it->bossLaserDamageTimer -= deltaTime;
+                        if (it->bossLaserDamageTimer <= 0.0f)
+                        {
+                            it->bossLaserDamageTimer = EnemyConfig::Boss3.laserDamageInterval;
+                            DamagePlayer(1);
+                            TriggerCameraShake(0.20f, 6.0f);
+                        }
+                    }
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::Cooldown;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.laserCooldownDuration;
+                    }
+                }
+                else if (it->bossPhase == BossPhase::Cooldown)
+                {
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::GlideTop;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.glideDuration;
+                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), EnemyConfig::Boss3.hoverY };
                     }
                 }
             }
@@ -2832,7 +2978,7 @@ void Game::TriggerBossEncounter(int bossType)
         boss.radius = EnemyConfig::Boss1.radius;
         boss.resourceAmount = 50;
     }
-    else // bossType == 2 (Void Destroyer)
+    else if (bossType == 2) // Boss 2 (Void Destroyer)
     {
         boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -140.0f);
         boss.velocity = DirectX::XMFLOAT2(0.0f, 65.0f);
@@ -2850,6 +2996,27 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bossShootTimer = EnemyConfig::Boss2.normalShootInterval;
         boss.bossSpiralFireTimer = 0.0f;
         boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, 220.0f);
+    }
+    else // bossType == 3 (Torii Yokai / Purple Sweeping Laser Boss)
+    {
+        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -160.0f);
+        boss.velocity = DirectX::XMFLOAT2(0.0f, 60.0f);
+        boss.rotation = 0.0f;
+        boss.rotationSpeed = 0.0f;
+        boss.maxHp = EnemyConfig::Boss3.baseHp + (float)(m_calamity.level - 1) * EnemyConfig::Boss3.hpPerSectorLevel;
+        boss.hp = boss.maxHp;
+        boss.scale = EnemyConfig::Boss3.scale;
+        boss.radius = EnemyConfig::Boss3.radius;
+        boss.resourceAmount = 120;
+
+        // AI State Machine setup
+        boss.bossPhase = BossPhase::Enter;
+        boss.bossPhaseTimer = 0.0f;
+        boss.bossShootTimer = 0.0f;
+        boss.bossLaserAngle = 1.5707963f; // PI / 2 (pointing straight down)
+        boss.bossLaserSweepFreq = EnemyConfig::Boss3.sweepStartFrequency;
+        boss.bossLaserDamageTimer = 0.0f;
+        boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, EnemyConfig::Boss3.hoverY);
     }
 
     m_asteroids.push_back(boss);
@@ -2971,7 +3138,7 @@ void Game::DrawGameplay()
 
         if (ast.isBoss)
         {
-            int bossTex = (ast.bossType == 2 && m_texBoss2 != -1) ? m_texBoss2 : m_texBoss1;
+            int bossTex = (ast.bossType == 3 && m_texBoss3 != -1) ? m_texBoss3 : (ast.bossType == 2 && m_texBoss2 != -1) ? m_texBoss2 : m_texBoss1;
             int texW = (bossTex != -1) ? Texture_GetWidth(bossTex) : 500;
             int texH = (bossTex != -1) ? Texture_GetHeight(bossTex) : 500;
             float w = (float)texW * ast.scale;
@@ -2981,9 +3148,11 @@ void Game::DrawGameplay()
                 ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f)
                 : (ast.bossType == 2 && ast.bossPhase == BossPhase::AlarmWarning)
                     ? DirectX::XMFLOAT4(1.0f, 0.4f + 0.6f * sinf(m_totalTime * 22.0f), 0.3f, 1.0f)
-                    : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+                    : (ast.bossType == 3 && ast.bossPhase == BossPhase::LaserCharge)
+                        ? DirectX::XMFLOAT4(1.0f, 0.5f + 0.5f * sinf(m_totalTime * 20.0f), 1.0f, 1.0f)
+                        : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // In AlarmWarning phase: draw pulsing expanding alarm aura circles and warning text
+            // Boss 2: In AlarmWarning phase - draw pulsing expanding alarm aura circles and warning text
             if (ast.bossType == 2 && ast.bossPhase == BossPhase::AlarmWarning)
             {
                 float pulseRing = fmodf(m_totalTime * 3.5f, 1.0f);
@@ -2992,6 +3161,71 @@ void Game::DrawGameplay()
                     { 1.0f, 0.25f, 0.20f, 1.0f - pulseRing }, 32);
                 DrawMatrixString(ast.position.x + camX - 75.0f, ast.position.y + camY - h * 0.5f - 38.0f,
                     "! DIKKAT : SPIRAL SALDIRI !", 1.4f, m_texLaser, { 1.0f, 0.3f, 0.3f, 1.0f });
+            }
+
+            // Boss 3: Eye Emitter & Sweeping Purple Death Laser Visuals
+            if (ast.bossType == 3)
+            {
+                float eyeX = ast.position.x + camX;
+                float eyeY = ast.position.y + camY + 10.0f;
+
+                // Central Eye Flare Pulse
+                float eyePulse = sinf(m_totalTime * 8.0f) * 0.20f + 0.80f;
+                Sprite_DrawCircle(eyeX, eyeY, 13.0f, 2.0f, { 0.90f, 0.25f, 1.0f, eyePulse }, 18);
+
+                // In LaserCharge phase: Warning aim beam & converging energy rings
+                if (ast.bossPhase == BossPhase::LaserCharge)
+                {
+                    // Converging purple energy circles collapsing into eye
+                    float ringProgress = fmodf(m_totalTime * 2.8f, 1.0f);
+                    Sprite_DrawCircle(eyeX, eyeY, 55.0f * (1.0f - ringProgress) + 10.0f, 2.5f, { 0.95f, 0.35f, 1.0f, ringProgress }, 24);
+
+                    // Warning tracking line
+                    for (float d = 40.0f; d < 1200.0f; d += 45.0f)
+                    {
+                        Sprite_DrawCircle(eyeX, eyeY + d, 3.5f, 1.8f, { 0.95f, 0.30f, 1.0f, 0.55f }, 10);
+                    }
+
+                    DrawMatrixString(ast.position.x + camX - 70.0f, ast.position.y + camY - h * 0.5f - 38.0f,
+                        "! DIKKAT : MOR LAZER !", 1.4f, m_texLaser, { 0.95f, 0.35f, 1.0f, 1.0f });
+                }
+                // In LaserSweep phase: Glorious Multi-Layer Sweeping Purple Death Laser
+                else if (ast.bossPhase == BossPhase::LaserSweep)
+                {
+                    float beamLen = 1400.0f;
+                    float rot = ast.bossLaserAngle;
+                    float midX = eyeX + cosf(rot) * (beamLen * 0.5f);
+                    float midY = eyeY + sinf(rot) * (beamLen * 0.5f);
+
+                    if (m_texLaser != -1)
+                    {
+                        int tW = Texture_GetWidth(m_texLaser);
+                        int tH = Texture_GetHeight(m_texLaser);
+
+                        // Layer 1: Wide Outer Violet Bloom Aura
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 26.0f, beamLen, 52.0f,
+                            0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 0.75f, 0.10f, 0.98f, 0.40f });
+
+                        // Layer 2: Neon Purple Core Laser Beam
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 14.0f, beamLen, 28.0f,
+                            0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 0.95f, 0.40f, 1.0f, 0.85f });
+
+                        // Layer 3: Superhot White-Hot Center
+                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 4.5f, beamLen, 9.0f,
+                            0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 1.0f, 0.95f, 1.0f, 0.98f });
+                    }
+
+                    // Corona Burst at eye emitter
+                    Sprite_DrawCircle(eyeX, eyeY, 24.0f, 3.0f, { 1.0f, 0.50f, 1.0f, 0.95f }, 24);
+                    Sprite_DrawCircle(eyeX, eyeY, 12.0f, 2.0f, { 1.0f, 1.0f, 1.0f, 1.0f }, 16);
+
+                    // Flowing energy sparks along the beam
+                    for (int s = 0; s < 5; ++s)
+                    {
+                        float sDist = fmodf(m_totalTime * 850.0f + (float)s * 250.0f, beamLen);
+                        Sprite_DrawCircle(eyeX + cosf(rot) * sDist, eyeY + sinf(rot) * sDist, 7.0f, 1.8f, { 1.0f, 0.70f, 1.0f, 0.80f }, 12);
+                    }
+                }
             }
 
             if (bossTex != -1)
@@ -3011,7 +3245,7 @@ void Game::DrawGameplay()
             Sprite_DrawRect(barX, barY, barW * hpPct, barH, { 1.0f, 0.2f, 0.25f, 1.0f });
 
             // Boss Title Badge
-            const char* bossTitle = (ast.bossType == 2) ? "PATRON II : VOID DESTROYER" : "PATRON I : GARGANTUAN";
+            const char* bossTitle = (ast.bossType == 3) ? "PATRON III : TORII YOKAI" : (ast.bossType == 2) ? "PATRON II : VOID DESTROYER" : "PATRON I : GARGANTUAN";
             DrawMatrixString(barX - 10.0f, barY - 14.0f, bossTitle, 1.3f, m_texLaser, { 1.0f, 0.85f, 0.3f, 1.0f });
         }
         else if (m_texAsteroid != -1)
