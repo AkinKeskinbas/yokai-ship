@@ -1021,7 +1021,7 @@ void Game::UpdateGameplay(float deltaTime)
             if (it->shootTimer <= 0.0f)
             {
                 it->shootTimer = it->shootInterval;
-                float bSpeed = 125.0f + (float)(m_calamity.level - 1) * 18.0f;
+                float bSpeed = EnemyConfig::Drone.bulletSpeed + (float)(m_calamity.level - 1) * 18.0f;
 
                 for (int k = 0; k < 4; k++)
                 {
@@ -1030,9 +1030,9 @@ void Game::UpdateGameplay(float deltaTime)
                     bullet.position = it->position;
                     bullet.velocity.x = cosf(angle) * bSpeed;
                     bullet.velocity.y = sinf(angle) * bSpeed;
-                    bullet.radius = 11.0f;
-                    bullet.damage = 1;
-                    bullet.lifetime = 4.5f;
+                    bullet.radius = EnemyConfig::Drone.bulletRadius;
+                    bullet.damage = EnemyConfig::Drone.bulletDamage;
+                    bullet.lifetime = EnemyConfig::Drone.bulletLifetime;
                     m_enemyProjectiles.push_back(bullet);
                 }
             }
@@ -2781,12 +2781,38 @@ void Game::DrawGameplay()
         }
         else if (m_texEnemy1Bullet != -1)
         {
-            float bSize = 22.0f;
+            float bX = bullet.position.x + camX;
+            float bY = bullet.position.y + camY;
+            float bSize = EnemyConfig::Drone.bulletVisualSize;
+
+            // Energetic pulsing glow halo
+            float pulse = sinf(m_totalTime * 12.0f + bullet.position.x * 0.08f) * 0.18f + 0.82f;
+
+            // Outer radiant crimson aura
+            DirectX::XMFLOAT4 haloCol = bullet.isReflected
+                ? DirectX::XMFLOAT4(0.35f, 1.0f, 0.50f, 0.75f * pulse)
+                : DirectX::XMFLOAT4(1.0f, 0.22f, 0.20f, 0.85f * pulse);
+            Sprite_DrawCircle(bX, bY, bSize * 0.52f, 2.5f, haloCol, 18);
+
+            // Inner bright plasma core ring
+            DirectX::XMFLOAT4 coreCol = bullet.isReflected
+                ? DirectX::XMFLOAT4(0.80f, 1.0f, 0.60f, 0.90f)
+                : DirectX::XMFLOAT4(1.0f, 0.85f, 0.35f, 0.95f);
+            Sprite_DrawCircle(bX, bY, bSize * 0.28f, 1.6f, coreCol, 14);
+
+            int texW = Texture_GetWidth(m_texEnemy1Bullet);
+            int texH = Texture_GetHeight(m_texEnemy1Bullet);
+            if (texW <= 0) texW = 500;
+            if (texH <= 0) texH = 500;
+
+            float rotAngle = atan2f(bullet.velocity.x, -bullet.velocity.y);
+
             Sprite_Draw(m_texEnemy1Bullet,
-                bullet.position.x + camX - bSize * 0.5f,
-                bullet.position.y + camY - bSize * 0.5f,
+                bX - bSize * 0.5f,
+                bY - bSize * 0.5f,
                 bSize, bSize,
-                0, 0, 500, 500, bCol);
+                0, 0, texW, texH,
+                rotAngle, { 1.0f, 1.0f }, bCol);
         }
     }
 

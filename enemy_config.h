@@ -29,7 +29,8 @@ namespace EnemyConfig
         float scale             = 0.12f;    // Görsel boyut ölçeği (enemy1.png)
         float shootInterval     = 1.6f;     // Ateş etme aralığı (saniye)
         float bulletSpeed       = 125.0f;   // Mermi hızı
-        float bulletRadius      = 11.0f;    // Mermi boyutu
+        float bulletRadius      = 13.0f;    // Mermi çarpışma yarıçapı
+        float bulletVisualSize  = 42.0f;    // Mermi ekrandaki görsel boyutu (piksel)
         int   bulletDamage      = 1;        // Mermi hasarı (kalp)
         float bulletLifetime    = 4.5f;     // Mermi menzil ömrü
         float calamityGainOnKill= 7.0f;     // Öldürülünce Felaket Sayacına eklenen puan
