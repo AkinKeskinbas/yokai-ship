@@ -2785,21 +2785,6 @@ void Game::DrawGameplay()
             float bY = bullet.position.y + camY;
             float bSize = EnemyConfig::Drone.bulletVisualSize;
 
-            // Energetic pulsing glow halo
-            float pulse = sinf(m_totalTime * 12.0f + bullet.position.x * 0.08f) * 0.18f + 0.82f;
-
-            // Outer radiant crimson aura
-            DirectX::XMFLOAT4 haloCol = bullet.isReflected
-                ? DirectX::XMFLOAT4(0.35f, 1.0f, 0.50f, 0.75f * pulse)
-                : DirectX::XMFLOAT4(1.0f, 0.22f, 0.20f, 0.85f * pulse);
-            Sprite_DrawCircle(bX, bY, bSize * 0.52f, 2.5f, haloCol, 18);
-
-            // Inner bright plasma core ring
-            DirectX::XMFLOAT4 coreCol = bullet.isReflected
-                ? DirectX::XMFLOAT4(0.80f, 1.0f, 0.60f, 0.90f)
-                : DirectX::XMFLOAT4(1.0f, 0.85f, 0.35f, 0.95f);
-            Sprite_DrawCircle(bX, bY, bSize * 0.28f, 1.6f, coreCol, 14);
-
             int texW = Texture_GetWidth(m_texEnemy1Bullet);
             int texH = Texture_GetHeight(m_texEnemy1Bullet);
             if (texW <= 0) texW = 500;
@@ -2807,12 +2792,30 @@ void Game::DrawGameplay()
 
             float rotAngle = atan2f(bullet.velocity.x, -bullet.velocity.y);
 
+            // 1. Soft organic ambient glow behind sprite (clean, no geometric rings)
+            float glowSize = bSize * 1.28f;
+            DirectX::XMFLOAT4 glowCol = bullet.isReflected
+                ? DirectX::XMFLOAT4(0.20f, 1.0f, 0.40f, 0.45f)
+                : DirectX::XMFLOAT4(1.0f, 0.30f, 0.15f, 0.50f);
+
+            Sprite_Draw(m_texEnemy1Bullet,
+                bX - glowSize * 0.5f,
+                bY - glowSize * 0.5f,
+                glowSize, glowSize,
+                0, 0, texW, texH,
+                rotAngle, { 1.0f, 1.0f }, glowCol);
+
+            // 2. Crisp, ultra-bright high-contrast core bullet
+            DirectX::XMFLOAT4 coreCol = bullet.isReflected
+                ? DirectX::XMFLOAT4(0.50f, 1.20f, 0.70f, 1.0f)
+                : DirectX::XMFLOAT4(1.25f, 1.15f, 1.05f, 1.0f);
+
             Sprite_Draw(m_texEnemy1Bullet,
                 bX - bSize * 0.5f,
                 bY - bSize * 0.5f,
                 bSize, bSize,
                 0, 0, texW, texH,
-                rotAngle, { 1.0f, 1.0f }, bCol);
+                rotAngle, { 1.0f, 1.0f }, coreCol);
         }
     }
 
