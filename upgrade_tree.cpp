@@ -350,7 +350,7 @@ void UpgradeTree::SetupNodes()
         n.maxLevel = 1;
         n.levelCosts = { { 190, 22, 6, 2, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 6 };
+        n.prerequisiteIds = { 7 };
         m_nodes.push_back(n);
     }
     {
@@ -366,7 +366,7 @@ void UpgradeTree::SetupNodes()
         n.maxLevel = 1;
         n.levelCosts = { { 230, 26, 8, 2, 1 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 7 };
+        n.prerequisiteIds = { 8 };
         m_nodes.push_back(n);
     }
 
@@ -416,7 +416,7 @@ void UpgradeTree::SetupNodes()
         n.maxLevel = 1;
         n.levelCosts = { { 200, 24, 7, 2, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 10 };
+        n.prerequisiteIds = { 11 };
         m_nodes.push_back(n);
     }
 
@@ -1252,7 +1252,7 @@ void UpgradeTree::SetupNodes()
         n.maxLevel = 1;
         n.levelCosts = { { 50, 5, 1, 0, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 1, 40 };
+        n.prerequisiteIds = { 54 };
         m_nodes.push_back(n);
     }
     {
@@ -1268,7 +1268,7 @@ void UpgradeTree::SetupNodes()
         n.maxLevel = 1;
         n.levelCosts = { { 80, 8, 2, 0, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 6 };
+        n.prerequisiteIds = { 51 };
         m_nodes.push_back(n);
     }
     {
@@ -1284,7 +1284,7 @@ void UpgradeTree::SetupNodes()
         n.maxLevel = 1;
         n.levelCosts = { { 40, 4, 1, 0, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 28 };
+        n.prerequisiteIds = { 55 };
         m_nodes.push_back(n);
     }
 }
