@@ -227,8 +227,13 @@ bool Game::Initialize(HWND hWnd)
         return false;
     }
 
-    // Load textures
-    m_texBackground = Texture_Load(L"asset/background.jpeg");
+    // Initialize Procedural Cosmic Background Shader (HLSL)
+    if (!m_bgRenderer.Initialize(Direct3D_GetDevice(), Direct3D_GetDeviceContext()))
+    {
+        return false;
+    }
+
+    // Load textures (Procedural background shader replaces background.jpeg)
     m_texSpaceship = Texture_Load(L"asset/spaceship.png");
     m_texLaser = Texture_Load(L"asset/laser_no_bg.png");
     m_texLaserHit = Texture_Load(L"asset/laser_effect_no_bg.png");
@@ -281,6 +286,8 @@ void Game::Finalize()
         UnloadAudio(m_soundShoot);
         m_soundShoot = -1;
     }
+
+    m_bgRenderer.Finalize();
 
     m_texExplosions.clear();
     Texture_AllRelease();
@@ -653,6 +660,10 @@ void Game::UpdateGameplay(float deltaTime)
 
         return; // Complete Pause while modal is open!
     }
+
+    // Update Procedural Background Shader with dynamic boss status
+    bool isBossAlive = m_bossTriggered && !m_bossVictory;
+    m_bgRenderer.Update(deltaTime, isBossAlive);
 
     if (m_runState == RunState::Active)
     {
@@ -1755,6 +1766,8 @@ void Game::UpdateGameplay(float deltaTime)
 
 void Game::UpdateUpgrade(float deltaTime)
 {
+    m_bgRenderer.Update(deltaTime, false);
+
     bool startGame = false;
     m_upgradeTree.Update(deltaTime, m_stats, m_resources, startGame, m_upgradeTree.GetCurrentSectorIndex());
 
@@ -2571,13 +2584,8 @@ void Game::DrawGameplay()
     float camX = m_cameraOffset.x;
     float camY = m_cameraOffset.y;
 
-    // 1. Draw Fixed Background
-    if (m_texBackground != -1)
-    {
-        Sprite_Draw(m_texBackground, camX, camY, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, 
-            0, 0, Texture_GetWidth(m_texBackground), Texture_GetHeight(m_texBackground), 
-            { 1.0f, 1.0f, 1.0f, 1.0f });
-    }
+    // 1. Draw Procedural Cosmic Background Shader (Pure HLSL)
+    m_bgRenderer.Render(camX, camY);
 
     // 2. Draw Asteroids & Weakpoints
     for (const auto& ast : m_asteroids)
@@ -3373,5 +3381,6 @@ void Game::DrawRunSummary()
 
 void Game::DrawUpgrade()
 {
+    m_bgRenderer.Render(0.0f, 0.0f);
     m_upgradeTree.Draw(m_resources, m_upgradeTree.GetCurrentSectorIndex());
 }

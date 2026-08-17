@@ -66,12 +66,18 @@
     <ClCompile Include="upgrade_tree.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="background_shader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="configuration.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="enemy_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="background_shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="debug_ostream.h">
@@ -125,6 +131,12 @@
       <Filter>Shader Files</Filter>
     </FxCompile>
     <FxCompile Include="shader_vertex_2d.hlsl">
+      <Filter>Shader Files</Filter>
+    </FxCompile>
+    <FxCompile Include="shader_background_vs.hlsl">
+      <Filter>Shader Files</Filter>
+    </FxCompile>
+    <FxCompile Include="shader_background_ps.hlsl">
       <Filter>Shader Files</Filter>
     </FxCompile>
   </ItemGroup>

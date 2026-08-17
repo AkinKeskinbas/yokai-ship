@@ -24,6 +24,7 @@ enum class RunState
 
 #include "upgrade_tree.h"
 #include "enemy_config.h"
+#include "background_shader.h"
 
 enum class TurretSpec
 {
@@ -406,8 +407,10 @@ private:
     GameScene m_currentScene = GameScene::UpgradePlaceholder;
     RunState m_runState = RunState::Active;
     
+    // Background Procedural Shader
+    BackgroundRenderer m_bgRenderer;
+
     // Textures
-    int m_texBackground = -1;
     int m_texSpaceship = -1;
     int m_texLaser = -1;
     int m_texLaserHit = -1;
