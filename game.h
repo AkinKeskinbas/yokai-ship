@@ -434,6 +434,7 @@ private:
 
     // Player state & Upgrade Tree
     DirectX::XMFLOAT2 m_playerPos{ 800.0f, 450.0f };
+    DirectX::XMFLOAT2 m_playerVelocity{ 0.0f, 0.0f };
     float m_playerRotation = 0.0f;
     float m_playerTargetRotation = 0.0f;
     float m_totalTime = 0.0f;

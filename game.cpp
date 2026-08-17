@@ -299,6 +299,7 @@ void Game::Finalize()
 void Game::ResetRun()
 {
     m_playerPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.5f);
+    m_playerVelocity = DirectX::XMFLOAT2(0.0f, 0.0f);
     m_playerRotation = 0.0f;
     m_playerTargetRotation = 0.0f;
     m_totalTime = 0.0f;
@@ -732,7 +733,24 @@ void Game::UpdateGameplay(float deltaTime)
             m_isDashing = true;
             m_dashTimer = 0.40f;
             m_invincibleTimer = 0.40f; // i-frames
-            m_dashDir = { sinf(m_playerRotation), -cosf(m_playerRotation) };
+
+            // Dash directly in movement direction if moving, otherwise forward
+            DirectX::XMFLOAT2 curInput{ 0.0f, 0.0f };
+            if (InputKeyboard_IsPress(KK_W) || InputKeyboard_IsPress(KK_UP))    curInput.y -= 1.0f;
+            if (InputKeyboard_IsPress(KK_S) || InputKeyboard_IsPress(KK_DOWN))  curInput.y += 1.0f;
+            if (InputKeyboard_IsPress(KK_A) || InputKeyboard_IsPress(KK_LEFT))  curInput.x -= 1.0f;
+            if (InputKeyboard_IsPress(KK_D) || InputKeyboard_IsPress(KK_RIGHT)) curInput.x += 1.0f;
+            float inLen = sqrtf(curInput.x * curInput.x + curInput.y * curInput.y);
+
+            if (inLen > 0.001f)
+            {
+                m_dashDir = { curInput.x / inLen, curInput.y / inLen };
+            }
+            else
+            {
+                m_dashDir = { sinf(m_playerRotation), -cosf(m_playerRotation) };
+            }
+
             if (m_soundShoot != -1) PlayAudio(m_soundShoot);
         }
 
@@ -783,22 +801,42 @@ void Game::UpdateGameplay(float deltaTime)
             }
         }
 
-        // Tank Controls: A/D rotate ship, W/S thrust forward/backward
-        float rotationSpeed = 3.5f;
-        if (InputKeyboard_IsPress(KK_A))
+        // =========================================================================
+        // 🚀 MODERN 8-WAY OMNIDIRECTIONAL MOVEMENT & SMOOTH SHIP HEADING
+        // =========================================================================
+        DirectX::XMFLOAT2 moveInput{ 0.0f, 0.0f };
+        if (InputKeyboard_IsPress(KK_W) || InputKeyboard_IsPress(KK_UP))    moveInput.y -= 1.0f;
+        if (InputKeyboard_IsPress(KK_S) || InputKeyboard_IsPress(KK_DOWN))  moveInput.y += 1.0f;
+        if (InputKeyboard_IsPress(KK_A) || InputKeyboard_IsPress(KK_LEFT))  moveInput.x -= 1.0f;
+        if (InputKeyboard_IsPress(KK_D) || InputKeyboard_IsPress(KK_RIGHT)) moveInput.x += 1.0f;
+
+        float inputLen = sqrtf(moveInput.x * moveInput.x + moveInput.y * moveInput.y);
+        if (inputLen > 0.001f)
         {
-            m_playerRotation -= rotationSpeed * deltaTime;
-        }
-        if (InputKeyboard_IsPress(KK_D))
-        {
-            m_playerRotation += rotationSpeed * deltaTime;
+            moveInput.x /= inputLen;
+            moveInput.y /= inputLen;
+
+            // Smooth & highly responsive ship nose rotation towards movement direction
+            float targetRot = atan2f(moveInput.x, -moveInput.y);
+            float rotDiff = targetRot - m_playerRotation;
+            while (rotDiff > PI)  rotDiff -= 2.0f * PI;
+            while (rotDiff < -PI) rotDiff += 2.0f * PI;
+
+            float turnSpeed = 16.0f; // Fast, snappy, super-fluid steering
+            m_playerRotation += rotDiff * std::min(1.0f, turnSpeed * deltaTime);
         }
 
-        if (m_playerRotation > PI) m_playerRotation -= 2.0f * PI;
-        if (m_playerRotation < -PI) m_playerRotation += 2.0f * PI;
+        // Normalize rotation to [-PI, PI]
+        while (m_playerRotation > PI)  m_playerRotation -= 2.0f * PI;
+        while (m_playerRotation < -PI) m_playerRotation += 2.0f * PI;
 
-        DirectX::XMFLOAT2 forward{ sinf(m_playerRotation), -cosf(m_playerRotation) };
-        float moveSpeed = m_stats.moveSpeed;
+        // Velocity with snappy acceleration & silky smooth space glide
+        float targetSpeed = m_stats.moveSpeed;
+        DirectX::XMFLOAT2 targetVel{ moveInput.x * targetSpeed, moveInput.y * targetSpeed };
+        float accelRate = (inputLen > 0.001f) ? 14.0f : 8.5f;
+
+        m_playerVelocity.x += (targetVel.x - m_playerVelocity.x) * accelRate * deltaTime;
+        m_playerVelocity.y += (targetVel.y - m_playerVelocity.y) * accelRate * deltaTime;
 
         if (m_isDashing)
         {
@@ -860,16 +898,8 @@ void Game::UpdateGameplay(float deltaTime)
         }
         else
         {
-            if (InputKeyboard_IsPress(KK_W))
-            {
-                m_playerPos.x += forward.x * moveSpeed * deltaTime;
-                m_playerPos.y += forward.y * moveSpeed * deltaTime;
-            }
-            if (InputKeyboard_IsPress(KK_S))
-            {
-                m_playerPos.x -= forward.x * moveSpeed * 0.6f * deltaTime;
-                m_playerPos.y -= forward.y * moveSpeed * 0.6f * deltaTime;
-            }
+            m_playerPos.x += m_playerVelocity.x * deltaTime;
+            m_playerPos.y += m_playerVelocity.y * deltaTime;
         }
 
         m_playerPos.x = std::clamp(m_playerPos.x, 50.0f, (float)SCREEN_WIDTH - 50.0f);
