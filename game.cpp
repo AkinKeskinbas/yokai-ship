@@ -1581,7 +1581,16 @@ void Game::UpdateGameplay(float deltaTime)
                     float diff = targetAngle - it->bossLaserAngle;
                     while (diff > PI)  diff -= 2.0f * PI;
                     while (diff < -PI) diff += 2.0f * PI;
-                    it->bossLaserAngle += diff * std::min(1.0f, 6.0f * deltaTime);
+
+                    float turnStep = EnemyConfig::Boss3.aimTrackingTurnSpeed * deltaTime;
+                    if (fabsf(diff) <= turnStep)
+                    {
+                        it->bossLaserAngle = targetAngle;
+                    }
+                    else
+                    {
+                        it->bossLaserAngle += (diff > 0.0f ? turnStep : -turnStep);
+                    }
 
                     it->bossPhaseTimer -= deltaTime;
                     if (it->bossPhaseTimer <= 0.0f)
@@ -1612,11 +1621,11 @@ void Game::UpdateGameplay(float deltaTime)
                 }
                 else if (it->bossPhase == BossPhase::LaserFire)
                 {
-                    // 3. MASSIVE BEAM DISCHARGE & HEAVY SLOW TRACKING:
+                    // 3. MASSIVE BEAM DISCHARGE & DELAYED HEAVY TRACKING:
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 12.0f) * 2.0f;
 
-                    // Slowly and heavily turn beam towards player's position (allowing player to out-maneuver)
+                    // Slowly and heavily turn beam towards player's position with delay (player can easily outrun by moving)
                     float targetAngle = atan2f(m_playerPos.y - eyePos.y, m_playerPos.x - eyePos.x);
                     float diff = targetAngle - it->bossLaserAngle;
                     while (diff > PI)  diff -= 2.0f * PI;
@@ -3210,13 +3219,19 @@ void Game::DrawGameplay()
                 float eyePulse = sinf(m_totalTime * 8.0f) * 0.20f + 0.80f;
                 Sprite_DrawCircle(eyeX, eyeY, 13.0f, 2.0f, { 0.90f, 0.25f, 1.0f, eyePulse }, 18);
 
-                // Phase 1: LaserTrack - Active Aim Tracking with Dotted Purple Ray
+                // Phase 1: LaserTrack - Active Aim Tracking with Smooth Dotted/Continuous Guide Ray
                 if (ast.bossPhase == BossPhase::LaserTrack)
                 {
-                    for (float d = 35.0f; d < 1300.0f; d += 40.0f)
-                    {
-                        Sprite_DrawCircle(eyeX + aimDir.x * d, eyeY + aimDir.y * d, 3.2f, 1.6f, { 0.90f, 0.30f, 1.0f, 0.65f }, 10);
-                    }
+                    float startX = eyeX;
+                    float startY = eyeY;
+                    float endX = eyeX + aimDir.x * 1400.0f;
+                    float endY = eyeY + aimDir.y * 1400.0f;
+
+                    // Multi-layer subtle tracking guide ray
+                    Sprite_DrawLine(startX, startY, endX, endY, 6.0f, { 0.75f, 0.20f, 0.95f, 0.22f });
+                    Sprite_DrawLine(startX, startY, endX, endY, 2.5f, { 0.90f, 0.40f, 1.0f, 0.60f });
+                    Sprite_DrawLine(startX, startY, endX, endY, 1.0f, { 1.0f, 0.85f, 1.0f, 0.85f });
+
                     DrawMatrixString(ast.position.x + camX - 65.0f, ast.position.y + camY - h * 0.5f - 38.0f,
                         "! HEDEFLENIYOR !", 1.4f, m_texLaser, { 0.90f, 0.45f, 1.0f, 1.0f });
                 }
@@ -3227,56 +3242,61 @@ void Game::DrawGameplay()
                     float ringProgress = fmodf(m_totalTime * 3.5f, 1.0f);
                     Sprite_DrawCircle(eyeX, eyeY, 50.0f * (1.0f - ringProgress) + 10.0f, 2.5f, { 1.0f, 0.25f, 0.45f, ringProgress }, 24);
 
+                    float startX = eyeX;
+                    float startY = eyeY;
+                    float endX = eyeX + aimDir.x * 1400.0f;
+                    float endY = eyeY + aimDir.y * 1400.0f;
+
                     // Solid warning locked line
-                    float beamLen = 1400.0f;
-                    float midX = eyeX + aimDir.x * (beamLen * 0.5f);
-                    float midY = eyeY + aimDir.y * (beamLen * 0.5f);
-                    if (m_texLaser != -1)
-                    {
-                        int tW = Texture_GetWidth(m_texLaser);
-                        int tH = Texture_GetHeight(m_texLaser);
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 6.0f, beamLen, 12.0f,
-                            0, 0, tW, tH, ast.bossLaserAngle, { 1.0f, 1.0f }, { 1.0f, 0.20f, 0.35f, 0.85f });
-                    }
+                    Sprite_DrawLine(startX, startY, endX, endY, 14.0f, { 1.0f, 0.15f, 0.35f, 0.40f });
+                    Sprite_DrawLine(startX, startY, endX, endY, 6.0f,  { 1.0f, 0.35f, 0.55f, 0.85f });
+                    Sprite_DrawLine(startX, startY, endX, endY, 2.0f,  { 1.0f, 1.0f, 1.0f, 0.98f });
 
                     DrawMatrixString(ast.position.x + camX - 75.0f, ast.position.y + camY - h * 0.5f - 38.0f,
                         "! KILITLENDI : KAC !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
                 }
-                // Phase 3: LaserFire - Glorious 3-Layer Massive Purple Death Beam Discharge
+                // Phase 3: LaserFire - Massive Colossal Laser Beam (Boss-scale counterpart of player's laser beam)
                 else if (ast.bossPhase == BossPhase::LaserFire)
                 {
+                    float startX = eyeX;
+                    float startY = eyeY;
                     float beamLen = 1400.0f;
-                    float rot = ast.bossLaserAngle;
-                    float midX = eyeX + cosf(rot) * (beamLen * 0.5f);
-                    float midY = eyeY + sinf(rot) * (beamLen * 0.5f);
+                    float endX = eyeX + cosf(ast.bossLaserAngle) * beamLen;
+                    float endY = eyeY + sinf(ast.bossLaserAngle) * beamLen;
 
-                    if (m_texLaser != -1)
+                    // 4-Layer Colossal Boss Laser Beam (Matching player laser architecture with boss-scale power)
+                    // Layer 1: Huge Outer Violet Bloom Aura
+                    Sprite_DrawLine(startX, startY, endX, endY, 46.0f, { 0.70f, 0.12f, 0.98f, 0.32f });
+                    // Layer 2: Vivid Electric Neon Purple Beam
+                    Sprite_DrawLine(startX, startY, endX, endY, 26.0f, { 0.85f, 0.30f, 1.0f, 0.65f });
+                    // Layer 3: High-Power Magenta Core Beam
+                    Sprite_DrawLine(startX, startY, endX, endY, 13.0f, { 0.98f, 0.55f, 1.0f, 0.95f });
+                    // Layer 4: Ultra-Intense White Hot Plazma Core
+                    Sprite_DrawLine(startX, startY, endX, endY, 4.5f,  { 1.0f, 1.0f, 1.0f, 1.0f });
+
+                    // Corona Flare & Pulsing Energy Rings at Emitter Eye
+                    Sprite_DrawCircle(eyeX, eyeY, 28.0f, 3.5f, { 0.95f, 0.40f, 1.0f, 0.95f }, 24);
+                    Sprite_DrawCircle(eyeX, eyeY, 14.0f, 2.2f, { 1.0f, 1.0f, 1.0f, 1.0f }, 16);
+
+                    // Flowing energy plasma sparks along the beam
+                    for (int s = 0; s < 6; ++s)
                     {
-                        int tW = Texture_GetWidth(m_texLaser);
-                        int tH = Texture_GetHeight(m_texLaser);
-
-                        // Layer 1: Wide Outer Violet Bloom Aura
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 28.0f, beamLen, 56.0f,
-                            0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 0.75f, 0.10f, 0.98f, 0.40f });
-
-                        // Layer 2: Neon Purple Core Laser Beam
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 16.0f, beamLen, 32.0f,
-                            0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 0.95f, 0.40f, 1.0f, 0.85f });
-
-                        // Layer 3: Superhot White-Hot Center
-                        Sprite_Draw(m_texLaser, midX - beamLen * 0.5f, midY - 5.0f, beamLen, 10.0f,
-                            0, 0, tW, tH, rot, { 1.0f, 1.0f }, { 1.0f, 0.95f, 1.0f, 0.98f });
+                        float sDist = fmodf(m_totalTime * 850.0f + (float)s * 220.0f, beamLen);
+                        Sprite_DrawCircle(eyeX + cosf(ast.bossLaserAngle) * sDist, eyeY + sinf(ast.bossLaserAngle) * sDist, 7.5f, 1.8f, { 1.0f, 0.75f, 1.0f, 0.85f }, 12);
                     }
 
-                    // Corona Burst at eye emitter
-                    Sprite_DrawCircle(eyeX, eyeY, 26.0f, 3.2f, { 1.0f, 0.50f, 1.0f, 0.95f }, 24);
-                    Sprite_DrawCircle(eyeX, eyeY, 13.0f, 2.2f, { 1.0f, 1.0f, 1.0f, 1.0f }, 16);
-
-                    // Flowing energy sparks along the beam
-                    for (int s = 0; s < 5; ++s)
+                    // Contact impact sparkle at target end
+                    if (m_texLaserHit != -1)
                     {
-                        float sDist = fmodf(m_totalTime * 850.0f + (float)s * 250.0f, beamLen);
-                        Sprite_DrawCircle(eyeX + cosf(rot) * sDist, eyeY + sinf(rot) * sDist, 7.5f, 1.8f, { 1.0f, 0.70f, 1.0f, 0.80f }, 12);
+                        int frame = (int)(m_totalTime * 24.0f) % 8;
+                        int hitCol = frame % 4;
+                        int hitRow = frame / 4;
+                        int fW = 384;
+                        int fH = 512;
+                        float hitW = 54.0f;
+                        float hitH = 72.0f;
+                        Sprite_Draw(m_texLaserHit, endX - hitW * 0.5f, endY - hitH * 0.5f, hitW, hitH,
+                            hitCol * fW, hitRow * fH, fW, fH, 0.0f, { 1.0f, 1.0f }, { 0.95f, 0.50f, 1.0f, 0.9f });
                     }
                 }
             }

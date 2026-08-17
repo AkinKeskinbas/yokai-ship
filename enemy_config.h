@@ -124,14 +124,15 @@ namespace EnemyConfig
         // Saldırı Döngüsü ve Faz Süreleri
         float glideDuration         = 3.8f;     // Tepede sağa-sola süzülme süresi
         float aimTrackingDuration   = 1.8f;     // Oyuncuyu hedefleme çizgisiyle takip etme süresi
-        float aimLockPauseDuration  = 0.75f;    // KİLİTLENME VE KAÇIŞ ANI: Çizgi parlar ve sabitlenir, oyuncuya kaçma fırsatı verir (saniye)
-        float laserFiringDuration   = 3.2f;     // Devasa mor lazer ateşleme süresi
-        float laserTrackingTurnSpeed= 0.95f;    // Lazer ateşlenirken oyuncuyu yavaşça/ağır takip etme dönüş hızı (rad/s)
+        float aimTrackingTurnSpeed  = 2.2f;     // Hedefleme aşamasındaki takip hızı (rad/s)
+        float aimLockPauseDuration  = 0.65f;    // KİLİTLENME VE KAÇIŞ ANI: Çizgi parlar ve sabitlenir, oyuncuya kaçma fırsatı verir (saniye)
+        float laserFiringDuration   = 3.4f;     // Devasa mor lazer ateşleme süresi
+        float laserTrackingTurnSpeed= 0.48f;    // Gecikmeli ağır takip hızı: Oyuncu hareket ettiği sürece lazer arkasında kalır (kaçabilir), sabit durursa lazer yetişip hasar verir (rad/s)
         float laserCooldownDuration = 1.2f;     // Saldırı bittikten sonraki dinlenme süresi
 
         // Lazer Parametreleri
-        float laserDamageInterval   = 0.30f;    // Lazere temas edilince hasar yeme sıklığı (saniye)
-        float laserBeamWidth        = 32.0f;    // Lazer ışınının kalınlığı (piksel)
+        float laserDamageInterval   = 0.25f;    // Lazere temas edilince hasar yeme sıklığı (saniye)
+        float laserBeamWidth        = 24.0f;    // Lazer ışınının çarpışma kalınlığı (piksel)
 
         // Boss 3 Ödül / Drop Miktarları
         int   reishiDropCount       = 45;
