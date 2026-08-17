@@ -526,6 +526,7 @@ private:
     float m_deathSequenceTimer = 0.0f;
     float m_bossDeathTimer = 0.0f;
     float m_explosionStaggerTimer = 0.0f;
+    float m_runSummaryInputDelay = 0.0f;
     DirectX::XMFLOAT2 m_defeatedBossPos{ 0.0f, 0.0f };
 };
 

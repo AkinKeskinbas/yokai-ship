@@ -343,6 +343,7 @@ void Game::ResetRun()
     m_deathSequenceTimer = 0.0f;
     m_bossDeathTimer = 0.0f;
     m_explosionStaggerTimer = 0.0f;
+    m_runSummaryInputDelay = 0.0f;
     m_defeatedBossPos = { 0.0f, 0.0f };
     m_bossTriggered = false;
     m_bossVictory = false;
@@ -1850,6 +1851,7 @@ void Game::UpdateGameplay(float deltaTime)
         if (m_deathSequenceTimer <= 0.0f)
         {
             m_runState = RunState::RunEnded;
+            m_runSummaryInputDelay = 1.2f; // Debounce so player doesn't accidentally skip death report
         }
     }
     else if (m_runState == RunState::BossDefeated)
@@ -1902,24 +1904,27 @@ void Game::UpdateGameplay(float deltaTime)
             if (m_soundShoot != -1) PlayAudio(m_soundShoot);
         }
 
-        // Active Super Vacuum: high-speed magnetic pull for all boss drops to player!
-        float currentPickupRadius = 3500.0f;
-        float currentMagnetSpeed = 1200.0f;
+        // Two-Phase Boss Drop Dynamics:
+        // Phase 1 (First 1.0s, timer > 3.0s): Resources burst and scatter outward naturally like fireworks
+        // Phase 2 (Remaining 3.0s, timer <= 3.0s): Super Vacuum turns on and magnetically accelerates resources to the ship
+        bool isMagnetActive = (m_bossDeathTimer <= 3.0f);
+        float magnetSpeed = isMagnetActive ? (550.0f + (3.0f - m_bossDeathTimer) * 260.0f) : 0.0f;
+
         for (auto it = m_pickups.begin(); it != m_pickups.end(); )
         {
             it->position.x += it->velocity.x * deltaTime;
             it->position.y += it->velocity.y * deltaTime;
-            it->velocity.x *= 0.94f;
-            it->velocity.y *= 0.94f;
+            it->velocity.x *= 0.95f;
+            it->velocity.y *= 0.95f;
 
             float pDx = m_playerPos.x - it->position.x;
             float pDy = m_playerPos.y - it->position.y;
             float pDist = sqrt(pDx * pDx + pDy * pDy);
 
-            if (pDist < currentPickupRadius)
+            if (isMagnetActive && pDist > 1.0f)
             {
-                it->position.x += (pDx / pDist) * currentMagnetSpeed * deltaTime;
-                it->position.y += (pDy / pDist) * currentMagnetSpeed * deltaTime;
+                it->position.x += (pDx / pDist) * magnetSpeed * deltaTime;
+                it->position.y += (pDy / pDist) * magnetSpeed * deltaTime;
             }
 
             if (pDist < 36.0f)
@@ -2042,11 +2047,16 @@ void Game::UpdateGameplay(float deltaTime)
         if (m_bossDeathTimer <= 0.0f)
         {
             m_runState = RunState::RunEnded;
+            m_runSummaryInputDelay = 1.0f; // Debounce so firing click doesn't skip victory report
         }
     }
     else if (m_runState == RunState::RunEnded)
     {
         m_endRunTimer -= deltaTime;
+        if (m_runSummaryInputDelay > 0.0f)
+        {
+            m_runSummaryInputDelay -= deltaTime;
+        }
 
         // Active super vacuum pull to suck all remaining crystals and drops to the player ship!
         float currentPickupRadius = 3000.0f;
@@ -2104,8 +2114,8 @@ void Game::UpdateGameplay(float deltaTime)
             ++it;
         }
 
-        // Explicitly proceed to Market / Upgrade Tree via SPACE or Left Click (no auto skip)
-        bool userProceed = InputKeyboard_IsTrigger(KK_SPACE) || InputMouse_IsTrigger(MOUSE_BUTTON_LEFT);
+        // Explicitly proceed to Market / Upgrade Tree via SPACE or Left Click only after delay
+        bool userProceed = (m_runSummaryInputDelay <= 0.0f) && (InputKeyboard_IsTrigger(KK_SPACE) || InputMouse_IsTrigger(MOUSE_BUTTON_LEFT));
 
         if (userProceed)
         {
