@@ -16,7 +16,7 @@ namespace EnemyConfig
     // Oyun başlar başlamaz test için Boss 2'nin gelmesini sağlar.
     // Test bittiğinde 'TEST_SPAWN_BOSS2_AT_START = false;' yapabilirsiniz.
     inline constexpr bool TEST_SPAWN_BOSS2_AT_START = true;
-    inline constexpr int  TEST_BOSS_TYPE             = 3;     // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai)
+    inline constexpr int  TEST_BOSS_TYPE             = 4;     // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
 
     // ========================================================================
     // 2. NORMAL DÜŞMAN DRONE AYARLARI (ENEMY DRONE 1 CONFIG)
@@ -146,6 +146,61 @@ namespace EnemyConfig
         int   keyDropCount              = 3;        // 3 Sektör Anahtarı
     };
     inline constexpr Boss3Stats Boss3{};
+
+    // ========================================================================
+    // 6. FİNAL BOSS AYARLARI (FINAL BOSS - KITSUNE YOKAI ENTITY)
+    // ========================================================================
+    struct BossFinalStats
+    {
+        float baseHp                    = 2200.0f;  // Final Boss Canı
+        float hpPerSectorLevel          = 600.0f;   // Sektör başına ek can
+        float scale                     = 0.28f;    // Görsel boyutu (final_boss.png)
+        float radius                    = 95.0f;    // Çarpışma yarıçapı
+        float moveSpeed                 = 80.0f;    // Üst bölgede gezinme hızı
+        float hoverY                    = 160.0f;   // Tepedeki Y yüksekliği
+        int   collisionDamage           = 1;        // Çarpışma hasarı
+
+        // Faz 0: Koruyucu Orb Kalkanı (Orb Shield)
+        float orbHp                     = 200.0f;   // Her bir yok edilebilir orb canı
+        float orbRadius                 = 24.0f;    // Orb çarpışma yarıçapı
+        float orbScale                  = 0.09f;    // Orb görsel boyutu (boss_orb.png)
+        float orbOrbitRadius            = 155.0f;   // Boss etrafındaki dönüş yarıçapı
+        float orbBaseRotationSpeed      = 1.10f;    // 4 orb canlıyken temel dönüş hızı (rad/s)
+        float orbFireInterval           = 2.0f;     // Orb ateş etme aralığı
+        float orbBulletSpeed            = 160.0f;   // Orb mermi hızı
+        int   orbBulletDamage           = 1;        // Orb mermi hasarı
+
+        // Faz 1: Temel Saldırılar (100% -> 70% HP)
+        float phase1AttackInterval      = 2.2f;     // Saldırı aralığı (5'li fan ve 8 yönlü radial)
+        float phase1BulletSpeed         = 165.0f;
+
+        // Faz 2: Düşen Kılıç Tuzakları (70% -> 40% HP)
+        float bladeRadius               = 24.0f;    // Kılıç çarpışma yarıçapı
+        float bladeScale                = 0.12f;    // Kılıç görsel boyutu (boss_blade.png)
+        float bladeWarningDuration      = 0.65f;    // Kırmızı uyarı sütunu süresi
+        float bladeFallSpeed            = 950.0f;   // Kılıcın dikey iniş hızı
+        float bladePulseInterval        = 1.5f;     // Saplanan kılıcın 4 yönlü mermi atma aralığı
+        float bladePulseBulletSpeed     = 140.0f;
+        float bladeCommandInterval      = 4.5f;     // Boss'un tüm saplı kılıçları oyuncuya ateşletme aralığı
+        int   maxEmbeddedBlades         = 4;        // Sahada aynı anda bulunabilecek maksimum saplı kılıç
+        float bladeLifetime             = 14.0f;    // Kılıcın sahadan silinme süresi
+
+        // Faz 3: Hayalet Orblar (40% -> 15% HP)
+        float phase3GhostDuration       = 7.0f;     // Hayalet orbların sahnede kalma süresi
+        float phase3AttackInterval      = 2.6f;
+
+        // Final Fazı & Kılıç Hapishanesi (15% -> 0% HP)
+        float bladePrisonCooldown       = 9.0f;     // Blade Prison özel saldırı bekleme süresi
+
+        // Final Boss Ödül / Drop Miktarları
+        int   reishiDropCount           = 60;
+        int   reishiPerDrop             = 8;        // Toplam 480 Reishi
+        int   vidaDropCount             = 20;
+        int   disliDropCount            = 14;
+        int   cpuDropCount              = 8;
+        int   keyDropCount              = 4;        // 4 Sektör Anahtarı
+    };
+    inline constexpr BossFinalStats BossFinal{};
 }
 
 #endif // ENEMY_CONFIG_H

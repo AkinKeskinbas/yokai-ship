@@ -121,7 +121,7 @@ struct PlayerStats
     ActiveSkillType skill3 = ActiveSkillType::None; // [SHIFT/SPACE]
 };
 
-// Boss Phase State Machine
+// Boss Phase State Machine (Boss 1, 2, 3)
 enum class BossPhase
 {
     Enter,          // Spawning and descending onto the battlefield
@@ -134,6 +134,60 @@ enum class BossPhase
     LaserTrack,     // Boss 3: Purple aim sight actively tracks player's position
     LaserLock,      // Boss 3: Aim sight turns solid & locks in place, giving player dodge/escape window
     LaserFire       // Boss 3: Massive purple death beam fires along locked vector, slowly tracking player
+};
+
+// Final Boss (Boss 4 - Kitsune Yokai) Phase State Machine
+enum class FinalBossPhase
+{
+    OrbShield,    // Phase 0: 4 destructible orbiting cores, boss invulnerable
+    Phase1,       // Phase 1: 100% -> 70% HP (5-way fan & 8-dir radial bursts)
+    Phase2,       // Phase 2: 70% -> 40% HP (falling & embedded blade hazards)
+    Phase3,       // Phase 3: 40% -> 15% HP (temporary ghost orb emitters + blade hazards)
+    Final         // Final Phase: 15% -> 0% HP (all-out chaos + special BLADE PRISON attack)
+};
+
+// Final Boss Orbital Core (Phase 0 shield & Phase 3 ghost emitter)
+struct BossOrb
+{
+    DirectX::XMFLOAT2 position{ 0.0f, 0.0f };
+    float angle = 0.0f;           // Orbit angle around boss (radians)
+    float orbitRadius = 155.0f;   // Distance from boss center
+    float hp = 200.0f;
+    float maxHp = 200.0f;
+    float radius = 24.0f;         // Collision & hit radius
+    float scale = 0.09f;          // boss_orb.png scale
+    float fireTimer = 0.0f;
+    float fireInterval = 2.0f;
+    int attackPattern = 0;        // 0: Aimed 1-shot, 1: 3-way spread, 2: 6-way radial burst
+    float flashTimer = 0.0f;
+    bool alive = true;
+    bool isGhost = false;         // Phase 3 temporary invulnerable ghost emitter
+    float ghostLifetime = 0.0f;
+};
+
+// Final Boss Falling Blade Hazard
+enum class BladeState
+{
+    Warning,      // Red vertical marker at X
+    Falling,      // Spawns above screen and drops vertically down
+    Embedded,     // Embedded in arena: damages on contact, pulses 4-way, receives boss command shot
+    Removed
+};
+
+struct BossBlade
+{
+    DirectX::XMFLOAT2 position{ 0.0f, 0.0f };
+    float targetY = 500.0f;
+    float warningTimer = 0.65f;
+    float warningDuration = 0.65f;
+    float pulseTimer = 1.5f;
+    float pulseInterval = 1.5f;
+    float lifetime = 14.0f;
+    BladeState state = BladeState::Warning;
+    float scale = 0.12f;          // boss_blade.png scale
+    float radius = 24.0f;         // Hitbox radius
+    float rotation = 1.5707963f;  // PI / 2 (pointing downwards)
+    bool isPrisonBlade = false;   // Special Blade Prison attack
 };
 
 // Enemy Projectile (4-way bullets from enemies and boss spirals)
@@ -189,8 +243,8 @@ struct Asteroid
     int resourceAmount = 0;
     int visualRow = 0;
     int visualCol = 0;
-    bool isBoss = false;     // True if Calamity Boss (boss1.png / boss2.png / boss3.png)
-    int bossType = 1;        // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai)
+    bool isBoss = false;     // True if Calamity Boss (boss1.png / boss2.png / boss3.png / final_boss.png)
+    int bossType = 1;        // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
     bool destroyed = false;
     float flashTimer = 0.0f; // For hit flash feedback
 
@@ -205,6 +259,16 @@ struct Asteroid
     float bossLaserAngle = 1.5707963f; // PI / 2 (pointing straight down initially)
     float bossLaserSweepFreq = 1.0f;
     float bossLaserDamageTimer = 0.0f;
+
+    // Final Boss (Boss 4) State Machine & Timers
+    FinalBossPhase finalPhase = FinalBossPhase::OrbShield;
+    bool invulnerable = false;
+    float finalBossPhaseTimer = 0.0f;
+    float finalAttackTimer = 0.0f;
+    float finalBladeTimer = 0.0f;
+    float bladePrisonTimer = 0.0f;
+    float ghostOrbTimer = 0.0f;
+    int finalAttackStep = 0;
 
     // Weakpoint & Anomalies
     bool hasWeakpoint = false;
@@ -408,6 +472,12 @@ private:
     void TriggerBossEncounter(int bossType = 1);
     void ResetRun();
 
+    // Final Boss Encounter Helpers
+    void UpdateFinalBoss(Asteroid& boss, float deltaTime);
+    void SpawnFinalBossBlades(int count, bool isPrison = false);
+    void TriggerBladeCommandAimedShot();
+    void SpawnGhostOrbs(const DirectX::XMFLOAT2& bossPos);
+
     // Helper functions
     float RandomFloat(float min, float max);
     int RandomInt(int min, int max);
@@ -430,6 +500,9 @@ private:
     int m_texBoss1 = -1;          // boss1.png
     int m_texBoss2 = -1;          // boss2.png
     int m_texBoss3 = -1;          // boss3.png
+    int m_texFinalBoss = -1;      // final_boss.png
+    int m_texBossOrb = -1;        // boss_orb.png
+    int m_texBossBlade = -1;      // boss_blade.png
     int m_texBossProjectile = -1; // projectile.png
     int m_texEnemy1 = -1;         // enemy1.png
     int m_texEnemy1Bullet = -1;   // enemy1bullet.png
@@ -524,6 +597,8 @@ private:
     // Lists of gameplay objects
     std::vector<Asteroid> m_asteroids;
     std::vector<Enemy> m_enemies;
+    std::vector<BossOrb> m_bossOrbs;
+    std::vector<BossBlade> m_bossBlades;
     std::vector<ResourcePickup> m_pickups;
     std::vector<OrbitingResource> m_orbitingResources;
     std::vector<AncientChest> m_chests;

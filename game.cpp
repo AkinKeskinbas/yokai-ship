@@ -241,6 +241,9 @@ bool Game::Initialize(HWND hWnd)
     m_texBoss1 = Texture_Load(L"asset/boss1.png");
     m_texBoss2 = Texture_Load(L"asset/boss2.png");
     m_texBoss3 = Texture_Load(L"asset/boss3.png");
+    m_texFinalBoss = Texture_Load(L"asset/final_boss.png");
+    m_texBossOrb = Texture_Load(L"asset/boss_orb.png");
+    m_texBossBlade = Texture_Load(L"asset/boss_blade.png");
     m_texBossProjectile = Texture_Load(L"asset/projectile.png");
     m_texEnemy1 = Texture_Load(L"asset/enemy1.png");
     m_texEnemy1Bullet = Texture_Load(L"asset/enemy1bullet.png");
@@ -315,6 +318,8 @@ void Game::ResetRun()
 
     m_asteroids.clear();
     m_enemies.clear();
+    m_bossOrbs.clear();
+    m_bossBlades.clear();
     m_pickups.clear();
     m_orbitingResources.clear();
     m_chests.clear();
@@ -1149,6 +1154,199 @@ void Game::UpdateGameplay(float deltaTime)
             ++it;
         }
 
+        // ==========================================
+        // UPDATE FINAL BOSS ORBS (m_bossOrbs)
+        // ==========================================
+        DirectX::XMFLOAT2 boss4Pos{ (float)SCREEN_WIDTH * 0.5f, EnemyConfig::BossFinal.hoverY };
+        for (const auto& ast : m_asteroids)
+        {
+            if (ast.isBoss && ast.bossType == 4)
+            {
+                boss4Pos = ast.position;
+                break;
+            }
+        }
+
+        // Count alive destructible orbs to compute rotation speed multiplier
+        int aliveDestructibleCount = 0;
+        for (const auto& orb : m_bossOrbs)
+        {
+            if (orb.alive && !orb.isGhost) aliveDestructibleCount++;
+        }
+        float speedMult = (aliveDestructibleCount == 4) ? 1.0f
+                        : (aliveDestructibleCount == 3) ? 1.10f
+                        : (aliveDestructibleCount == 2) ? 1.20f
+                        : 1.35f;
+
+        for (auto it = m_bossOrbs.begin(); it != m_bossOrbs.end(); )
+        {
+            if (!it->alive)
+            {
+                it = m_bossOrbs.erase(it);
+                continue;
+            }
+
+            // Ghost lifetime
+            if (it->isGhost)
+            {
+                it->ghostLifetime -= deltaTime;
+                if (it->ghostLifetime <= 0.0f)
+                {
+                    it = m_bossOrbs.erase(it);
+                    continue;
+                }
+            }
+
+            // Flash timer
+            if (it->flashTimer > 0.0f) it->flashTimer -= deltaTime;
+
+            // Orbit update
+            it->angle += EnemyConfig::BossFinal.orbBaseRotationSpeed * speedMult * deltaTime;
+            it->position = { boss4Pos.x + cosf(it->angle) * it->orbitRadius, boss4Pos.y + sinf(it->angle) * it->orbitRadius };
+
+            // Firing patterns
+            it->fireTimer -= deltaTime;
+            if (it->fireTimer <= 0.0f)
+            {
+                it->fireTimer = it->fireInterval;
+
+                float odx = m_playerPos.x - it->position.x;
+                float ody = m_playerPos.y - it->position.y;
+                float baseAngle = atan2f(ody, odx);
+
+                if (it->attackPattern == 0)
+                {
+                    // Pattern A: 1 aimed projectile
+                    EnemyProjectile bp;
+                    bp.position = it->position;
+                    bp.velocity = { cosf(baseAngle) * EnemyConfig::BossFinal.orbBulletSpeed, sinf(baseAngle) * EnemyConfig::BossFinal.orbBulletSpeed };
+                    bp.radius = 11.0f;
+                    bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
+                    bp.lifetime = 4.5f;
+                    bp.isBossSpiral = true;
+                    m_enemyProjectiles.push_back(bp);
+                }
+                else if (it->attackPattern == 1)
+                {
+                    // Pattern B: 3-way spread
+                    for (int p = -1; p <= 1; ++p)
+                    {
+                        float angle = baseAngle + (float)p * 0.22f;
+                        EnemyProjectile bp;
+                        bp.position = it->position;
+                        bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.orbBulletSpeed, sinf(angle) * EnemyConfig::BossFinal.orbBulletSpeed };
+                        bp.radius = 11.0f;
+                        bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
+                        bp.lifetime = 4.5f;
+                        bp.isBossSpiral = true;
+                        m_enemyProjectiles.push_back(bp);
+                    }
+                }
+                else
+                {
+                    // Pattern C: 6-direction radial burst
+                    float startRot = m_totalTime * 2.0f;
+                    for (int p = 0; p < 6; ++p)
+                    {
+                        float angle = startRot + (float)p * (2.0f * PI / 6.0f);
+                        EnemyProjectile bp;
+                        bp.position = it->position;
+                        bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.orbBulletSpeed, sinf(angle) * EnemyConfig::BossFinal.orbBulletSpeed };
+                        bp.radius = 11.0f;
+                        bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
+                        bp.lifetime = 4.5f;
+                        bp.isBossSpiral = true;
+                        m_enemyProjectiles.push_back(bp);
+                    }
+                }
+            }
+
+            // Player vs Orb collision
+            float pDx = m_playerPos.x - it->position.x;
+            float pDy = m_playerPos.y - it->position.y;
+            float pDist = sqrtf(pDx * pDx + pDy * pDy);
+            if (pDist < m_playerHitboxRadius + it->radius)
+            {
+                DamagePlayer(1);
+            }
+
+            ++it;
+        }
+
+        // ==========================================
+        // UPDATE FINAL BOSS BLADES (m_bossBlades)
+        // ==========================================
+        for (auto it = m_bossBlades.begin(); it != m_bossBlades.end(); )
+        {
+            if (it->state == BladeState::Warning)
+            {
+                it->warningTimer -= deltaTime;
+                if (it->warningTimer <= 0.0f)
+                {
+                    it->state = BladeState::Falling;
+                    it->position.y = -80.0f;
+                }
+            }
+            else if (it->state == BladeState::Falling)
+            {
+                it->position.y += EnemyConfig::BossFinal.bladeFallSpeed * deltaTime;
+                if (it->position.y >= it->targetY)
+                {
+                    it->position.y = it->targetY;
+                    it->state = BladeState::Embedded;
+                    TriggerCameraShake(0.15f, 3.5f);
+                    // Impact sparks
+                    VFXInstance spark;
+                    spark.position = it->position;
+                    spark.lifetime = 0.0f;
+                    spark.maxLifetime = 0.35f;
+                    spark.scale = 1.2f;
+                    spark.isMultiTexture = true;
+                    spark.textureSequence = m_texExplosions;
+                    m_vfxs.push_back(spark);
+                }
+            }
+            else if (it->state == BladeState::Embedded)
+            {
+                it->lifetime -= deltaTime;
+                if (it->lifetime <= 0.0f)
+                {
+                    it = m_bossBlades.erase(it);
+                    continue;
+                }
+
+                // 4-Way Pulse Attack every ~1.5s
+                it->pulseTimer -= deltaTime;
+                if (it->pulseTimer <= 0.0f)
+                {
+                    it->pulseTimer = it->pulseInterval;
+                    float angles[4] = { -PI * 0.5f, PI * 0.5f, PI, 0.0f }; // Up, Down, Left, Right
+                    for (int a = 0; a < 4; ++a)
+                    {
+                        EnemyProjectile bp;
+                        bp.position = it->position;
+                        bp.velocity = { cosf(angles[a]) * EnemyConfig::BossFinal.bladePulseBulletSpeed, sinf(angles[a]) * EnemyConfig::BossFinal.bladePulseBulletSpeed };
+                        bp.radius = 10.0f;
+                        bp.damage = 1;
+                        bp.lifetime = 4.0f;
+                        bp.isBossSpiral = true;
+                        m_enemyProjectiles.push_back(bp);
+                    }
+                }
+
+                // Player vs Embedded Blade collision
+                float pDx = m_playerPos.x - it->position.x;
+                float pDy = m_playerPos.y - it->position.y;
+                float pDist = sqrtf(pDx * pDx + pDy * pDy);
+                if (pDist < m_playerHitboxRadius + it->radius)
+                {
+                    DamagePlayer(1);
+                }
+            }
+
+            ++it;
+        }
+
         // Update Asteroids & Bosses
         for (auto it = m_asteroids.begin(); it != m_asteroids.end(); )
         {
@@ -1184,16 +1382,19 @@ void Game::UpdateGameplay(float deltaTime)
                     if (m_soundShoot != -1) PlayAudio(m_soundShoot);
 
                     // Unlock next sector on the map!
-                    int defeatedLevel = (it->bossType == 3) ? 3 : (it->bossType == 2) ? 2 : m_calamity.level;
+                    int defeatedLevel = (it->bossType == 4) ? 4 : (it->bossType == 3) ? 3 : (it->bossType == 2) ? 2 : m_calamity.level;
                     m_upgradeTree.UnlockNextSector(defeatedLevel);
                     m_upgradeTree.SetCurrentSectorIndex(std::min(5, defeatedLevel + 1));
 
-                    int reishiDropCount = (it->bossType == 3) ? EnemyConfig::Boss3.reishiDropCount : (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
-                    int reishiPerDrop   = (it->bossType == 3) ? EnemyConfig::Boss3.reishiPerDrop   : (it->bossType == 2) ? EnemyConfig::Boss2.reishiPerDrop   : EnemyConfig::Boss1.reishiPerDrop;
-                    int vidaDropCount   = (it->bossType == 3) ? EnemyConfig::Boss3.vidaDropCount   : (it->bossType == 2) ? EnemyConfig::Boss2.vidaDropCount   : EnemyConfig::Boss1.vidaDropCount;
-                    int disliDropCount  = (it->bossType == 3) ? EnemyConfig::Boss3.disliDropCount  : (it->bossType == 2) ? EnemyConfig::Boss2.disliDropCount  : EnemyConfig::Boss1.disliDropCount;
-                    int cpuDropCount    = (it->bossType == 3) ? EnemyConfig::Boss3.cpuDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.cpuDropCount    : EnemyConfig::Boss1.cpuDropCount;
-                    int keyDropCount    = (it->bossType == 3) ? EnemyConfig::Boss3.keyDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.keyDropCount    : EnemyConfig::Boss1.keyDropCount;
+                    int reishiDropCount = (it->bossType == 4) ? EnemyConfig::BossFinal.reishiDropCount : (it->bossType == 3) ? EnemyConfig::Boss3.reishiDropCount : (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
+                    int reishiPerDrop   = (it->bossType == 4) ? EnemyConfig::BossFinal.reishiPerDrop   : (it->bossType == 3) ? EnemyConfig::Boss3.reishiPerDrop   : (it->bossType == 2) ? EnemyConfig::Boss2.reishiPerDrop   : EnemyConfig::Boss1.reishiPerDrop;
+                    int vidaDropCount   = (it->bossType == 4) ? EnemyConfig::BossFinal.vidaDropCount   : (it->bossType == 3) ? EnemyConfig::Boss3.vidaDropCount   : (it->bossType == 2) ? EnemyConfig::Boss2.vidaDropCount   : EnemyConfig::Boss1.vidaDropCount;
+                    int disliDropCount  = (it->bossType == 4) ? EnemyConfig::BossFinal.disliDropCount  : (it->bossType == 3) ? EnemyConfig::Boss3.disliDropCount  : (it->bossType == 2) ? EnemyConfig::Boss2.disliDropCount  : EnemyConfig::Boss1.disliDropCount;
+                    int cpuDropCount    = (it->bossType == 4) ? EnemyConfig::BossFinal.cpuDropCount    : (it->bossType == 3) ? EnemyConfig::Boss3.cpuDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.cpuDropCount    : EnemyConfig::Boss1.cpuDropCount;
+                    int keyDropCount    = (it->bossType == 4) ? EnemyConfig::BossFinal.keyDropCount    : (it->bossType == 3) ? EnemyConfig::Boss3.keyDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.keyDropCount    : EnemyConfig::Boss1.keyDropCount;
+
+                    m_bossOrbs.clear();
+                    m_bossBlades.clear();
 
                     // 1. Reishi Crystals
                     for (int k = 0; k < reishiDropCount; ++k)
@@ -1700,6 +1901,11 @@ void Game::UpdateGameplay(float deltaTime)
                         it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), EnemyConfig::Boss3.hoverY };
                     }
                 }
+            }
+            // Boss 4 (Final Boss - Kitsune Yokai Entity) Multi-Phase AI
+            else if (it->isBoss && it->bossType == 4)
+            {
+                UpdateFinalBoss(*it, deltaTime);
             }
             else
             {
@@ -2517,6 +2723,7 @@ void Game::TargetAndFireLasers(float deltaTime)
         float dist;
         Enemy* enemy;
         Asteroid* asteroid;
+        BossOrb* bossOrb;
     };
     std::vector<TargetItem> targets;
 
@@ -2528,7 +2735,7 @@ void Game::TargetAndFireLasers(float deltaTime)
         float dist = sqrtf(dx * dx + dy * dy);
         if (dist <= m_stats.laserRange)
         {
-            targets.push_back({ dist, &enemy, nullptr });
+            targets.push_back({ dist, &enemy, nullptr, nullptr });
         }
     }
 
@@ -2540,7 +2747,19 @@ void Game::TargetAndFireLasers(float deltaTime)
         float dist = sqrtf(dx * dx + dy * dy);
         if (dist <= m_stats.laserRange)
         {
-            targets.push_back({ dist, nullptr, &ast });
+            targets.push_back({ dist, nullptr, &ast, nullptr });
+        }
+    }
+
+    for (auto& orb : m_bossOrbs)
+    {
+        if (!orb.alive || orb.isGhost) continue;
+        float dx = orb.position.x - m_playerPos.x;
+        float dy = orb.position.y - m_playerPos.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist <= m_stats.laserRange)
+        {
+            targets.push_back({ dist, nullptr, nullptr, &orb });
         }
     }
 
@@ -2551,7 +2770,7 @@ void Game::TargetAndFireLasers(float deltaTime)
     // Overheat Tracking
     if (!targets.empty() && m_stats.overheatEnabled)
     {
-        void* curPrimary = targets[0].enemy ? (void*)targets[0].enemy : (void*)targets[0].asteroid;
+        void* curPrimary = targets[0].enemy ? (void*)targets[0].enemy : targets[0].asteroid ? (void*)targets[0].asteroid : (void*)targets[0].bossOrb;
         if (curPrimary == m_lastLaserTarget)
         {
             m_overheatDuration += deltaTime;
@@ -2578,7 +2797,7 @@ void Game::TargetAndFireLasers(float deltaTime)
     for (int i = 0; i < beamsToFire; ++i)
     {
         const auto& target = targets[i];
-        DirectX::XMFLOAT2 targetPos = target.enemy ? target.enemy->position : target.asteroid->position;
+        DirectX::XMFLOAT2 targetPos = target.enemy ? target.enemy->position : target.asteroid ? target.asteroid->position : target.bossOrb->position;
 
         DirectX::XMFLOAT4 laserColor = m_isOvercharged
             ? DirectX::XMFLOAT4(1.0f, 0.85f, 0.2f, 1.0f)
@@ -2599,7 +2818,7 @@ void Game::TargetAndFireLasers(float deltaTime)
         if (m_stats.piercingBeam && (int)targets.size() > beamsToFire)
         {
             const auto& secTarget = targets[beamsToFire];
-            DirectX::XMFLOAT2 secPos = secTarget.enemy ? secTarget.enemy->position : secTarget.asteroid->position;
+            DirectX::XMFLOAT2 secPos = secTarget.enemy ? secTarget.enemy->position : secTarget.asteroid ? secTarget.asteroid->position : secTarget.bossOrb->position;
             LaserInstance pierceBeam;
             pierceBeam.start = targetPos;
             pierceBeam.end = secPos;
@@ -2612,7 +2831,8 @@ void Game::TargetAndFireLasers(float deltaTime)
             {
                 float pierceDmg = currentDamage * 0.05f;
                 if (secTarget.enemy) { secTarget.enemy->hp -= pierceDmg; secTarget.enemy->flashTimer = 0.05f; }
-                else if (secTarget.asteroid) { secTarget.asteroid->hp -= pierceDmg; secTarget.asteroid->flashTimer = 0.05f; }
+                else if (secTarget.asteroid && !secTarget.asteroid->invulnerable) { secTarget.asteroid->hp -= pierceDmg; secTarget.asteroid->flashTimer = 0.05f; }
+                else if (secTarget.bossOrb) { secTarget.bossOrb->hp -= pierceDmg; secTarget.bossOrb->flashTimer = 0.05f; }
             }
         }
 
@@ -2620,7 +2840,7 @@ void Game::TargetAndFireLasers(float deltaTime)
         if (m_stats.chainLaser && (int)targets.size() > 1 && i == 0)
         {
             const auto& chainTarget = targets[1];
-            DirectX::XMFLOAT2 chainPos = chainTarget.enemy ? chainTarget.enemy->position : chainTarget.asteroid->position;
+            DirectX::XMFLOAT2 chainPos = chainTarget.enemy ? chainTarget.enemy->position : chainTarget.asteroid ? chainTarget.asteroid->position : chainTarget.bossOrb->position;
             LaserInstance chainBeam;
             chainBeam.start = targetPos;
             chainBeam.end = chainPos;
@@ -2633,7 +2853,8 @@ void Game::TargetAndFireLasers(float deltaTime)
             {
                 float chainDmg = currentDamage * 0.04f;
                 if (chainTarget.enemy) { chainTarget.enemy->hp -= chainDmg; chainTarget.enemy->flashTimer = 0.05f; }
-                else if (chainTarget.asteroid) { chainTarget.asteroid->hp -= chainDmg; chainTarget.asteroid->flashTimer = 0.05f; }
+                else if (chainTarget.asteroid && !chainTarget.asteroid->invulnerable) { chainTarget.asteroid->hp -= chainDmg; chainTarget.asteroid->flashTimer = 0.05f; }
+                else if (chainTarget.bossOrb) { chainTarget.bossOrb->hp -= chainDmg; chainTarget.bossOrb->flashTimer = 0.05f; }
             }
         }
 
@@ -2655,30 +2876,83 @@ void Game::TargetAndFireLasers(float deltaTime)
                 SpawnDamagePopup(target.enemy->position, (int)ceilf(dmg), isCrit, false, false);
                 if (target.enemy->hp <= 0.0f) target.enemy->destroyed = true;
             }
+            else if (target.bossOrb)
+            {
+                target.bossOrb->hp -= dmg;
+                target.bossOrb->flashTimer = 0.06f;
+                bool isCrit = m_isOvercharged || (m_overheatDuration >= 1.2f);
+                SpawnDamagePopup(target.bossOrb->position, (int)ceilf(dmg), isCrit, false, false);
+                if (target.bossOrb->hp <= 0.0f)
+                {
+                    target.bossOrb->alive = false;
+
+                    // Core Destruction Explosion VFX
+                    VFXInstance orbExp;
+                    orbExp.position = target.bossOrb->position;
+                    orbExp.lifetime = 0.0f;
+                    orbExp.maxLifetime = 0.50f;
+                    orbExp.scale = 2.0f;
+                    orbExp.isMultiTexture = true;
+                    orbExp.textureSequence = m_texExplosions;
+                    m_vfxs.push_back(orbExp);
+
+                    if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+
+                    // Check if all 4 shield orbs are dead
+                    bool anyAlive = false;
+                    for (const auto& ob : m_bossOrbs)
+                    {
+                        if (ob.alive && !ob.isGhost) { anyAlive = true; break; }
+                    }
+                    if (!anyAlive)
+                    {
+                        // Remove Boss 4 Invulnerability & Transition to Phase 1!
+                        for (auto& ast : m_asteroids)
+                        {
+                            if (ast.isBoss && ast.bossType == 4)
+                            {
+                                ast.invulnerable = false;
+                                ast.finalPhase = FinalBossPhase::Phase1;
+                                ast.finalAttackTimer = 1.0f;
+                                break;
+                            }
+                        }
+                        TriggerCameraShake(0.40f, 6.0f);
+                    }
+                }
+            }
             else if (target.asteroid)
             {
-                // Weakpoint check
-                if (target.asteroid->hasWeakpoint)
+                if (target.asteroid->isBoss && target.asteroid->invulnerable)
                 {
-                    dmg *= 2.2f;
-                    SpawnDamagePopup(target.asteroid->position, (int)ceilf(dmg), true, true, false);
+                    // Deflected by Golden Orb Shield!
+                    target.asteroid->flashTimer = 0.03f;
                 }
                 else
                 {
-                    SpawnDamagePopup(target.asteroid->position, (int)ceilf(dmg), m_isOvercharged, false, true);
-                }
-
-                target.asteroid->hp -= dmg;
-                target.asteroid->flashTimer = 0.06f;
-
-                if (target.asteroid->hp <= 0.0f)
-                {
-                    target.asteroid->destroyed = true;
-
-                    // Core Meltdown Explosion
-                    if (m_stats.coreMeltdown)
+                    // Weakpoint check
+                    if (target.asteroid->hasWeakpoint)
                     {
-                        TriggerShockwave(target.asteroid->position, 140.0f, 45.0f);
+                        dmg *= 2.2f;
+                        SpawnDamagePopup(target.asteroid->position, (int)ceilf(dmg), true, true, false);
+                    }
+                    else
+                    {
+                        SpawnDamagePopup(target.asteroid->position, (int)ceilf(dmg), m_isOvercharged, false, true);
+                    }
+
+                    target.asteroid->hp -= dmg;
+                    target.asteroid->flashTimer = 0.06f;
+
+                    if (target.asteroid->hp <= 0.0f)
+                    {
+                        target.asteroid->destroyed = true;
+
+                        // Core Meltdown Explosion
+                        if (m_stats.coreMeltdown)
+                        {
+                            TriggerShockwave(target.asteroid->position, 140.0f, 45.0f);
+                        }
                     }
                 }
             }
@@ -3050,7 +3324,7 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bossSpiralFireTimer = 0.0f;
         boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, 220.0f);
     }
-    else // bossType == 3 (Torii Yokai / Purple Sweeping Laser Boss)
+    else if (bossType == 3) // bossType == 3 (Torii Yokai / Purple Sweeping Laser Boss)
     {
         boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -160.0f);
         boss.velocity = DirectX::XMFLOAT2(0.0f, 60.0f);
@@ -3070,6 +3344,54 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bossLaserSweepFreq = EnemyConfig::Boss3.laserTrackingTurnSpeed;
         boss.bossLaserDamageTimer = 0.0f;
         boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, EnemyConfig::Boss3.hoverY);
+    }
+    else // bossType == 4 (Final Boss - Kitsune Yokai Entity)
+    {
+        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -180.0f);
+        boss.velocity = DirectX::XMFLOAT2(0.0f, 60.0f);
+        boss.rotation = 0.0f;
+        boss.rotationSpeed = 0.0f;
+        boss.maxHp = EnemyConfig::BossFinal.baseHp + (float)(m_calamity.level - 1) * EnemyConfig::BossFinal.hpPerSectorLevel;
+        boss.hp = boss.maxHp;
+        boss.scale = EnemyConfig::BossFinal.scale;
+        boss.radius = EnemyConfig::BossFinal.radius;
+        boss.resourceAmount = 220;
+
+        // AI State Machine setup
+        boss.finalPhase = FinalBossPhase::OrbShield;
+        boss.invulnerable = true; // Boss is invulnerable while any shield orb is alive!
+        boss.bossPhase = BossPhase::Enter;
+        boss.bossPhaseTimer = 0.0f;
+        boss.bossShootTimer = 0.0f;
+        boss.finalAttackTimer = EnemyConfig::BossFinal.phase1AttackInterval;
+        boss.finalBladeTimer = 3.5f;
+        boss.bladePrisonTimer = EnemyConfig::BossFinal.bladePrisonCooldown;
+        boss.ghostOrbTimer = 0.0f;
+        boss.finalAttackStep = 0;
+        boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, EnemyConfig::BossFinal.hoverY);
+
+        // Spawn 4 initial destructible shield orbs around the boss
+        m_bossOrbs.clear();
+        m_bossBlades.clear();
+        float startingAngles[4] = { 0.0f, 1.5707963f, 3.14159265f, 4.712389f };
+        for (int k = 0; k < 4; ++k)
+        {
+            BossOrb orb;
+            orb.angle = startingAngles[k];
+            orb.orbitRadius = EnemyConfig::BossFinal.orbOrbitRadius;
+            orb.position = { boss.position.x + cosf(orb.angle) * orb.orbitRadius, boss.position.y + sinf(orb.angle) * orb.orbitRadius };
+            orb.hp = EnemyConfig::BossFinal.orbHp;
+            orb.maxHp = EnemyConfig::BossFinal.orbHp;
+            orb.radius = EnemyConfig::BossFinal.orbRadius;
+            orb.scale = EnemyConfig::BossFinal.orbScale;
+            orb.fireInterval = EnemyConfig::BossFinal.orbFireInterval;
+            orb.fireTimer = 0.4f + (float)k * 0.45f; // Staggered fire timers
+            orb.attackPattern = k % 3; // 0: Aimed, 1: 3-way, 2: 6-way radial
+            orb.flashTimer = 0.0f;
+            orb.alive = true;
+            orb.isGhost = false;
+            m_bossOrbs.push_back(orb);
+        }
     }
 
     m_asteroids.push_back(boss);
@@ -3191,7 +3513,10 @@ void Game::DrawGameplay()
 
         if (ast.isBoss)
         {
-            int bossTex = (ast.bossType == 3 && m_texBoss3 != -1) ? m_texBoss3 : (ast.bossType == 2 && m_texBoss2 != -1) ? m_texBoss2 : m_texBoss1;
+            int bossTex = (ast.bossType == 4 && m_texFinalBoss != -1) ? m_texFinalBoss
+                        : (ast.bossType == 3 && m_texBoss3 != -1) ? m_texBoss3
+                        : (ast.bossType == 2 && m_texBoss2 != -1) ? m_texBoss2
+                        : m_texBoss1;
             int texW = (bossTex != -1) ? Texture_GetWidth(bossTex) : 500;
             int texH = (bossTex != -1) ? Texture_GetHeight(bossTex) : 500;
             float w = (float)texW * ast.scale;
@@ -3311,6 +3636,15 @@ void Game::DrawGameplay()
                 }
             }
 
+            // Boss 4: Golden Celestial Barrier Shield when invulnerable
+            if (ast.bossType == 4 && ast.invulnerable)
+            {
+                float shieldRad = ast.radius * 1.35f;
+                float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+                Sprite_DrawCircle(ast.position.x + camX, ast.position.y + camY, shieldRad, 3.5f, { 1.0f, 0.82f, 0.20f, 0.85f * pulse }, 36);
+                Sprite_DrawCircle(ast.position.x + camX, ast.position.y + camY, shieldRad - 8.0f, 1.8f, { 1.0f, 0.95f, 0.45f, 0.55f * pulse }, 28);
+            }
+
             if (bossTex != -1)
             {
                 Sprite_Draw(bossTex, ast.position.x + camX - w * 0.5f, ast.position.y + camY - h * 0.5f, w, h,
@@ -3318,7 +3652,7 @@ void Game::DrawGameplay()
             }
 
             // Boss Health Bar
-            float barW = 150.0f;
+            float barW = (ast.bossType == 4) ? 180.0f : 150.0f;
             float barH = 10.0f;
             float barX = ast.position.x + camX - barW * 0.5f;
             float barY = ast.position.y + camY - h * 0.5f - 18.0f;
@@ -3328,7 +3662,11 @@ void Game::DrawGameplay()
             Sprite_DrawRect(barX, barY, barW * hpPct, barH, { 1.0f, 0.2f, 0.25f, 1.0f });
 
             // Boss Title Badge
-            const char* bossTitle = (ast.bossType == 3) ? "PATRON III : TORII YOKAI" : (ast.bossType == 2) ? "PATRON II : VOID DESTROYER" : "PATRON I : GARGANTUAN";
+            const char* bossTitle = (ast.bossType == 4)
+                ? (ast.invulnerable ? "PATRON IV : KITSUNE YOKAI [ KALKAN AKTIF ]" : "PATRON IV : KITSUNE YOKAI")
+                : (ast.bossType == 3) ? "PATRON III : TORII YOKAI"
+                : (ast.bossType == 2) ? "PATRON II : VOID DESTROYER"
+                : "PATRON I : GARGANTUAN";
             DrawMatrixString(barX - 10.0f, barY - 14.0f, bossTitle, 1.3f, m_texLaser, { 1.0f, 0.85f, 0.3f, 1.0f });
         }
         else if (m_texAsteroid != -1)
@@ -3391,6 +3729,81 @@ void Game::DrawGameplay()
 
         // Label above chest
         DrawMatrixString(cX - 55.0f, cY - chest.radius - 18.0f, "[ 1 ANAHTAR ]", 1.6f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
+    }
+
+    // 2c. Draw Final Boss Orbiting Cores / Ghost Orbs (boss_orb.png)
+    if (m_texBossOrb != -1)
+    {
+        int oW = Texture_GetWidth(m_texBossOrb);
+        int oH = Texture_GetHeight(m_texBossOrb);
+        for (const auto& orb : m_bossOrbs)
+        {
+            if (!orb.alive) continue;
+            float w = (float)oW * orb.scale;
+            float h = (float)oH * orb.scale;
+            DirectX::XMFLOAT4 col = (orb.flashTimer > 0.0f)
+                ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f)
+                : orb.isGhost
+                    ? DirectX::XMFLOAT4(0.65f, 0.85f, 1.0f, 0.75f + 0.20f * sinf(m_totalTime * 12.0f))
+                    : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+            // Glowing energy core ring
+            Sprite_DrawCircle(orb.position.x + camX, orb.position.y + camY, orb.radius + 4.0f, 2.0f,
+                orb.isGhost ? DirectX::XMFLOAT4(0.4f, 0.9f, 1.0f, 0.6f) : DirectX::XMFLOAT4(1.0f, 0.55f, 0.2f, 0.75f), 20);
+
+            Sprite_Draw(m_texBossOrb, orb.position.x + camX - w * 0.5f, orb.position.y + camY - h * 0.5f, w, h,
+                0, 0, oW, oH, orb.angle * 2.0f, { 1.0f, 1.0f }, col);
+
+            // If destructible, draw mini HP indicator bar
+            if (!orb.isGhost)
+            {
+                float obw = 32.0f;
+                float obh = 4.0f;
+                float obx = orb.position.x + camX - obw * 0.5f;
+                float oby = orb.position.y + camY - h * 0.5f - 8.0f;
+                Sprite_DrawRect(obx, oby, obw, obh, { 0.2f, 0.05f, 0.05f, 0.8f });
+                float hpRatio = std::clamp(orb.hp / orb.maxHp, 0.0f, 1.0f);
+                Sprite_DrawRect(obx, oby, obw * hpRatio, obh, { 1.0f, 0.45f, 0.2f, 1.0f });
+            }
+        }
+    }
+
+    // 2d. Draw Final Boss Falling & Embedded Blades (boss_blade.png)
+    for (const auto& blade : m_bossBlades)
+    {
+        if (blade.state == BladeState::Warning)
+        {
+            // Vertical transparent red warning column
+            float warnPulse = sinf(m_totalTime * 28.0f) * 0.25f + 0.65f;
+            DirectX::XMFLOAT4 warnCol{ 1.0f, 0.20f, 0.20f, warnPulse * 0.35f };
+            DirectX::XMFLOAT4 lineCol{ 1.0f, 0.30f, 0.30f, warnPulse * 0.85f };
+
+            Sprite_DrawRect(blade.position.x + camX - 16.0f, 0.0f, 32.0f, (float)SCREEN_HEIGHT, warnCol);
+            Sprite_DrawLine(blade.position.x + camX, 0.0f, blade.position.x + camX, (float)SCREEN_HEIGHT, 2.0f, lineCol);
+
+            // Top and target position exclamation markers
+            DrawMatrixString(blade.position.x + camX - 6.0f, 25.0f, "!", 2.2f, m_texLaser, { 1.0f, 0.3f, 0.3f, 1.0f });
+            Sprite_DrawCircle(blade.position.x + camX, blade.targetY + camY, 20.0f, 2.0f, lineCol, 18);
+        }
+        else if ((blade.state == BladeState::Falling || blade.state == BladeState::Embedded) && m_texBossBlade != -1)
+        {
+            int bW = Texture_GetWidth(m_texBossBlade);
+            int bH = Texture_GetHeight(m_texBossBlade);
+            float w = (float)bW * blade.scale;
+            float h = (float)bH * blade.scale;
+
+            // Rotating 90 degrees so sword points downwards
+            Sprite_Draw(m_texBossBlade, blade.position.x + camX - w * 0.5f, blade.position.y + camY - h * 0.5f, w, h,
+                0, 0, bW, bH, blade.rotation, { 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f });
+
+            if (blade.state == BladeState::Embedded)
+            {
+                // Ground impact energy ring
+                float pulse = sinf(m_totalTime * 8.0f) * 0.20f + 0.80f;
+                Sprite_DrawCircle(blade.position.x + camX, blade.position.y + camY + 8.0f, 18.0f, 2.0f,
+                    { 1.0f, 0.40f, 0.25f, 0.75f * pulse }, 18);
+            }
+        }
     }
 
     // 3. Draw Enemies
@@ -4101,4 +4514,381 @@ void Game::DrawUpgrade()
 {
     m_bgRenderer.Render(0.0f, 0.0f);
     m_upgradeTree.Draw(m_resources, m_upgradeTree.GetCurrentSectorIndex());
+}
+
+// ============================================================================
+// FINAL BOSS (BOSS 4 - KITSUNE YOKAI) HELPER IMPLEMENTATIONS
+// ============================================================================
+
+void Game::SpawnFinalBossBlades(int count, bool isPrison)
+{
+    // Enforce max embedded blades limit: remove oldest blades first
+    while ((int)m_bossBlades.size() + count > EnemyConfig::BossFinal.maxEmbeddedBlades && !m_bossBlades.empty())
+    {
+        m_bossBlades.erase(m_bossBlades.begin());
+    }
+
+    if (isPrison)
+    {
+        // BLADE PRISON: Spawns 4 vertical blades surrounding player's current X region
+        float offsets[4] = { -150.0f, -50.0f, 50.0f, 150.0f };
+        int spawnN = std::min(4, count);
+        for (int i = 0; i < spawnN; ++i)
+        {
+            BossBlade blade;
+            float spawnX = std::clamp(m_playerPos.x + offsets[i], 120.0f, (float)SCREEN_WIDTH - 120.0f);
+            blade.position = DirectX::XMFLOAT2(spawnX, -80.0f);
+            blade.targetY = std::clamp(m_playerPos.y + RandomFloat(-30.0f, 30.0f), 280.0f, (float)SCREEN_HEIGHT - 100.0f);
+            blade.warningTimer = EnemyConfig::BossFinal.bladeWarningDuration;
+            blade.warningDuration = EnemyConfig::BossFinal.bladeWarningDuration;
+            blade.pulseTimer = 1.0f + (float)i * 0.25f;
+            blade.pulseInterval = EnemyConfig::BossFinal.bladePulseInterval;
+            blade.lifetime = 8.0f;
+            blade.state = BladeState::Warning;
+            blade.scale = EnemyConfig::BossFinal.bladeScale;
+            blade.radius = EnemyConfig::BossFinal.bladeRadius;
+            blade.rotation = 1.5707963f; // 90 deg pointing downwards
+            blade.isPrisonBlade = true;
+            m_bossBlades.push_back(blade);
+        }
+    }
+    else
+    {
+        // Normal falling blades
+        for (int i = 0; i < count; ++i)
+        {
+            BossBlade blade;
+            float spawnX = RandomFloat(160.0f, (float)SCREEN_WIDTH - 160.0f);
+            blade.position = DirectX::XMFLOAT2(spawnX, -80.0f);
+            blade.targetY = RandomFloat(300.0f, (float)SCREEN_HEIGHT - 120.0f);
+            blade.warningTimer = EnemyConfig::BossFinal.bladeWarningDuration;
+            blade.warningDuration = EnemyConfig::BossFinal.bladeWarningDuration;
+            blade.pulseTimer = 1.0f + (float)i * 0.35f;
+            blade.pulseInterval = EnemyConfig::BossFinal.bladePulseInterval;
+            blade.lifetime = EnemyConfig::BossFinal.bladeLifetime;
+            blade.state = BladeState::Warning;
+            blade.scale = EnemyConfig::BossFinal.bladeScale;
+            blade.radius = EnemyConfig::BossFinal.bladeRadius;
+            blade.rotation = 1.5707963f;
+            blade.isPrisonBlade = false;
+            m_bossBlades.push_back(blade);
+        }
+    }
+}
+
+void Game::TriggerBladeCommandAimedShot()
+{
+    for (auto& blade : m_bossBlades)
+    {
+        if (blade.state != BladeState::Embedded) continue;
+
+        float bdx = m_playerPos.x - blade.position.x;
+        float bdy = m_playerPos.y - blade.position.y;
+        float bdist = sqrtf(bdx * bdx + bdy * bdy);
+        if (bdist < 0.001f) bdist = 1.0f;
+
+        EnemyProjectile bp;
+        bp.position = blade.position;
+        bp.velocity = { (bdx / bdist) * 175.0f, (bdy / bdist) * 175.0f };
+        bp.radius = 12.0f;
+        bp.damage = 1;
+        bp.lifetime = 4.5f;
+        bp.isBossSpiral = true;
+        m_enemyProjectiles.push_back(bp);
+
+        // Core flash ring
+        TriggerShockwave(blade.position, 35.0f, 0.0f);
+    }
+}
+
+void Game::SpawnGhostOrbs(const DirectX::XMFLOAT2& bossPos)
+{
+    // Clear old ghost orbs if any
+    for (auto it = m_bossOrbs.begin(); it != m_bossOrbs.end(); )
+    {
+        if (it->isGhost) it = m_bossOrbs.erase(it);
+        else ++it;
+    }
+
+    float angles[4] = { 0.0f, 1.5707963f, 3.14159265f, 4.712389f };
+    for (int k = 0; k < 4; ++k)
+    {
+        BossOrb gOrb;
+        gOrb.angle = angles[k];
+        gOrb.orbitRadius = EnemyConfig::BossFinal.orbOrbitRadius;
+        gOrb.position = { bossPos.x + cosf(gOrb.angle) * gOrb.orbitRadius, bossPos.y + sinf(gOrb.angle) * gOrb.orbitRadius };
+        gOrb.hp = 9999.0f;
+        gOrb.maxHp = 9999.0f;
+        gOrb.radius = EnemyConfig::BossFinal.orbRadius;
+        gOrb.scale = EnemyConfig::BossFinal.orbScale;
+        gOrb.fireInterval = 1.8f;
+        gOrb.fireTimer = 0.3f + (float)k * 0.40f;
+        gOrb.attackPattern = k % 3;
+        gOrb.flashTimer = 0.0f;
+        gOrb.alive = true;
+        gOrb.isGhost = true;
+        gOrb.ghostLifetime = EnemyConfig::BossFinal.phase3GhostDuration;
+        m_bossOrbs.push_back(gOrb);
+    }
+}
+
+void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
+{
+    float hpPct = std::clamp(boss.hp / boss.maxHp, 0.0f, 1.0f);
+
+    // 1. Entrance / Hover Movement
+    if (boss.bossPhase == BossPhase::Enter)
+    {
+        boss.position.y += boss.velocity.y * deltaTime;
+        if (boss.position.y >= EnemyConfig::BossFinal.hoverY)
+        {
+            boss.position.y = EnemyConfig::BossFinal.hoverY;
+            boss.bossPhase = BossPhase::Patrol;
+            boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.75f, EnemyConfig::BossFinal.hoverY);
+        }
+    }
+    else
+    {
+        // Smooth horizontal patrol in upper screen area with gentle vertical floating bob
+        float targetX = boss.bossTargetPos.x;
+        float dx = targetX - boss.position.x;
+        float moveDir = (dx > 0.0f) ? 1.0f : -1.0f;
+        boss.position.x += moveDir * EnemyConfig::BossFinal.moveSpeed * deltaTime;
+        boss.position.y = EnemyConfig::BossFinal.hoverY + sinf(m_totalTime * 2.5f) * 8.0f;
+
+        if (fabsf(dx) < 20.0f)
+        {
+            // Pick opposite target X
+            float nextX = (boss.position.x < (float)SCREEN_WIDTH * 0.5f)
+                ? RandomFloat((float)SCREEN_WIDTH * 0.60f, (float)SCREEN_WIDTH - 180.0f)
+                : RandomFloat(180.0f, (float)SCREEN_WIDTH * 0.40f);
+            boss.bossTargetPos.x = nextX;
+        }
+    }
+
+    // 2. Phase Transitions by HP percentage (only if vulnerable)
+    if (!boss.invulnerable)
+    {
+        if (boss.finalPhase == FinalBossPhase::Phase1 && hpPct <= 0.70f)
+        {
+            boss.finalPhase = FinalBossPhase::Phase2;
+            boss.finalAttackTimer = 1.0f;
+            boss.finalBladeTimer = 0.8f; // Drop blades soon
+            TriggerCameraShake(0.35f, 5.5f);
+        }
+        else if (boss.finalPhase == FinalBossPhase::Phase2 && hpPct <= 0.40f)
+        {
+            boss.finalPhase = FinalBossPhase::Phase3;
+            boss.finalAttackTimer = 1.0f;
+            boss.finalBladeTimer = 2.0f;
+            boss.ghostOrbTimer = 0.0f;
+            SpawnGhostOrbs(boss.position);
+            TriggerCameraShake(0.40f, 6.0f);
+        }
+        else if (boss.finalPhase == FinalBossPhase::Phase3 && hpPct <= 0.15f)
+        {
+            boss.finalPhase = FinalBossPhase::Final;
+            boss.finalAttackTimer = 0.8f;
+            boss.bladePrisonTimer = 1.5f; // Trigger Blade Prison special soon!
+            TriggerCameraShake(0.50f, 7.5f);
+        }
+    }
+
+    // 3. Phase Attack Execution
+    if (boss.finalPhase == FinalBossPhase::OrbShield)
+    {
+        // Boss is invulnerable. Destructible shield orbs handle firing and player must destroy all 4 to proceed!
+    }
+    else if (boss.finalPhase == FinalBossPhase::Phase1)
+    {
+        // Phase 1: Alternate Attack A (5-way fan) & Attack B (8-dir radial burst)
+        boss.finalAttackTimer -= deltaTime;
+        if (boss.finalAttackTimer <= 0.0f)
+        {
+            boss.finalAttackTimer = EnemyConfig::BossFinal.phase1AttackInterval;
+            boss.finalAttackStep = (boss.finalAttackStep + 1) % 2;
+
+            if (boss.finalAttackStep == 0)
+            {
+                // Attack A: 5-way projectile fan toward player
+                float bdx = m_playerPos.x - boss.position.x;
+                float bdy = m_playerPos.y - boss.position.y;
+                float baseAngle = atan2f(bdy, bdx);
+                float spread = 0.18f; // ~10 degrees apart
+                for (int p = -2; p <= 2; ++p)
+                {
+                    float angle = baseAngle + (float)p * spread;
+                    EnemyProjectile bp;
+                    bp.position = boss.position;
+                    bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed, sinf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed };
+                    bp.radius = 12.0f;
+                    bp.damage = 1;
+                    bp.lifetime = 4.8f;
+                    bp.isBossSpiral = true;
+                    m_enemyProjectiles.push_back(bp);
+                }
+            }
+            else
+            {
+                // Attack B: 8-direction radial projectile burst
+                float startRot = m_totalTime * 1.5f;
+                for (int p = 0; p < 8; ++p)
+                {
+                    float angle = startRot + (float)p * (2.0f * PI / 8.0f);
+                    EnemyProjectile bp;
+                    bp.position = boss.position;
+                    bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed, sinf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed };
+                    bp.radius = 12.0f;
+                    bp.damage = 1;
+                    bp.lifetime = 4.8f;
+                    bp.isBossSpiral = true;
+                    m_enemyProjectiles.push_back(bp);
+                }
+            }
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+    }
+    else if (boss.finalPhase == FinalBossPhase::Phase2)
+    {
+        // Phase 2: Falling blades + Boss attacks + Blade command triggers
+        boss.finalAttackTimer -= deltaTime;
+        if (boss.finalAttackTimer <= 0.0f)
+        {
+            boss.finalAttackTimer = EnemyConfig::BossFinal.phase1AttackInterval;
+            // 5-way fan
+            float bdx = m_playerPos.x - boss.position.x;
+            float bdy = m_playerPos.y - boss.position.y;
+            float baseAngle = atan2f(bdy, bdx);
+            for (int p = -2; p <= 2; ++p)
+            {
+                float angle = baseAngle + (float)p * 0.16f;
+                EnemyProjectile bp;
+                bp.position = boss.position;
+                bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed, sinf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed };
+                bp.radius = 12.0f;
+                bp.damage = 1;
+                bp.lifetime = 4.8f;
+                bp.isBossSpiral = true;
+                m_enemyProjectiles.push_back(bp);
+            }
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Falling Blade Spawns
+        boss.finalBladeTimer -= deltaTime;
+        if (boss.finalBladeTimer <= 0.0f)
+        {
+            int bladeCount = (hpPct < 0.52f) ? 3 : 2;
+            boss.finalBladeTimer = (hpPct < 0.52f) ? 4.8f : 5.8f;
+            SpawnFinalBossBlades(bladeCount);
+            TriggerBladeCommandAimedShot();
+        }
+    }
+    else if (boss.finalPhase == FinalBossPhase::Phase3)
+    {
+        // Phase 3: Ghost Orb Attacks alternating with Blade Attacks
+        boss.finalAttackTimer -= deltaTime;
+        if (boss.finalAttackTimer <= 0.0f)
+        {
+            boss.finalAttackTimer = EnemyConfig::BossFinal.phase3AttackInterval;
+            boss.finalAttackStep = (boss.finalAttackStep + 1) % 2;
+
+            if (boss.finalAttackStep == 0)
+            {
+                // Ghost Orb burst trigger / refresh
+                bool hasGhosts = false;
+                for (const auto& ob : m_bossOrbs) { if (ob.isGhost) { hasGhosts = true; break; } }
+                if (!hasGhosts)
+                {
+                    SpawnGhostOrbs(boss.position);
+                }
+            }
+            else
+            {
+                // Blade Drop sequence
+                SpawnFinalBossBlades(2);
+                TriggerBladeCommandAimedShot();
+            }
+        }
+    }
+    else if (boss.finalPhase == FinalBossPhase::Final)
+    {
+        // Final Phase: Combined Chaos Loop + Special BLADE PRISON Attack
+        boss.finalAttackTimer -= deltaTime;
+        if (boss.finalAttackTimer <= 0.0f)
+        {
+            boss.finalAttackTimer = 1.7f;
+            boss.finalAttackStep = (boss.finalAttackStep + 1) % 3;
+
+            if (boss.finalAttackStep == 0)
+            {
+                // 8-dir radial burst
+                float startRot = m_totalTime * 2.0f;
+                for (int p = 0; p < 8; ++p)
+                {
+                    float angle = startRot + (float)p * (2.0f * PI / 8.0f);
+                    EnemyProjectile bp;
+                    bp.position = boss.position;
+                    bp.velocity = { cosf(angle) * 160.0f, sinf(angle) * 160.0f };
+                    bp.radius = 12.0f;
+                    bp.damage = 1;
+                    bp.lifetime = 4.5f;
+                    bp.isBossSpiral = true;
+                    m_enemyProjectiles.push_back(bp);
+                }
+            }
+            else if (boss.finalAttackStep == 1)
+            {
+                // 5-way fan
+                float bdx = m_playerPos.x - boss.position.x;
+                float bdy = m_playerPos.y - boss.position.y;
+                float baseAngle = atan2f(bdy, bdx);
+                for (int p = -2; p <= 2; ++p)
+                {
+                    float angle = baseAngle + (float)p * 0.16f;
+                    EnemyProjectile bp;
+                    bp.position = boss.position;
+                    bp.velocity = { cosf(angle) * 165.0f, sinf(angle) * 165.0f };
+                    bp.radius = 12.0f;
+                    bp.damage = 1;
+                    bp.lifetime = 4.5f;
+                    bp.isBossSpiral = true;
+                    m_enemyProjectiles.push_back(bp);
+                }
+            }
+            else
+            {
+                // 2 Falling blades + Command shot
+                SpawnFinalBossBlades(2);
+                TriggerBladeCommandAimedShot();
+            }
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        }
+
+        // Special Attack: BLADE PRISON
+        boss.bladePrisonTimer -= deltaTime;
+        if (boss.bladePrisonTimer <= 0.0f)
+        {
+            boss.bladePrisonTimer = EnemyConfig::BossFinal.bladePrisonCooldown;
+            SpawnFinalBossBlades(4, true); // Blade Prison around player!
+
+            // Boss fires slow wave of projectiles to navigate through
+            float bdx = m_playerPos.x - boss.position.x;
+            float bdy = m_playerPos.y - boss.position.y;
+            float baseAngle = atan2f(bdy, bdx);
+            for (int p = -3; p <= 3; ++p)
+            {
+                float angle = baseAngle + (float)p * 0.14f;
+                EnemyProjectile bp;
+                bp.position = boss.position;
+                bp.velocity = { cosf(angle) * 110.0f, sinf(angle) * 110.0f }; // Slow navigating wave
+                bp.radius = 13.0f;
+                bp.damage = 1;
+                bp.lifetime = 6.0f;
+                bp.isBossSpiral = true;
+                m_enemyProjectiles.push_back(bp);
+            }
+            TriggerCameraShake(0.35f, 5.0f);
+        }
+    }
 }
