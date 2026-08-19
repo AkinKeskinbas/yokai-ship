@@ -19,6 +19,7 @@ enum class RunState
 {
     Active,
     PlayerDying,     // Player died: dramatic pause, multi-explosion cascade, camera shake
+    EnergyDepleted,  // Energy/Time ran out: dialog popup ("Bugünlük bu kadar yeter enerjimiz bitti kaptan")
     BossDefeated,    // Boss defeated: massive explosion chain, super vacuum collects resources
     RunEnded,        // Summary card is displayed, awaiting player action
     TransitionToUpgrade
@@ -462,6 +463,7 @@ private:
     void DrawSkillBar();
     void DrawRunSummary();
     void DrawChestModal();
+    void DrawEnergyDepletedModal();
     
     void SpawnAsteroids(float deltaTime);
     void SpawnEnemies(float deltaTime);

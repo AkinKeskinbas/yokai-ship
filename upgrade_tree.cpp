@@ -797,12 +797,12 @@ void UpgradeTree::SetupNodes()
         n.description = "Dash bekleme suresini kisaltarak daha sik kacinma manevrasi saglar.";
         n.effectFormat = "-20% Dash Bekleme Suresi";
         n.branch = NodeBranch::South_Engine;
-        n.icon = NodeIconType::SkillDash;
+        n.icon = NodeIconType::Chevrons;
         n.gridPos = { -1.1f, 1.6f };
         n.maxLevel = 2;
         n.levelCosts = { { 50, 5, 1, 0, 0 }, { 90, 10, 2, 0, 0 } };
         n.levelValues = { 0.20f, 0.40f };
-        n.prerequisiteIds = { 28 };
+        n.prerequisiteIds = { 58 }; // Requires Phase Dash active skill first!
         m_nodes.push_back(n);
     }
     {
@@ -813,7 +813,7 @@ void UpgradeTree::SetupNodes()
         n.description = "Dash esnasinda gemi tamamen saydamlasir ve dusman mermilerinin icinden hasarsiz gecer.";
         n.effectFormat = "Mermilerin Icinden Hasarsiz Gecis";
         n.branch = NodeBranch::South_Engine;
-        n.icon = NodeIconType::SkillDash;
+        n.icon = NodeIconType::Thruster;
         n.gridPos = { -1.1f, 2.6f };
         n.maxLevel = 1;
         n.levelCosts = { { 110, 12, 3, 1, 0 } };
@@ -1621,6 +1621,18 @@ void UpgradeTree::AddRunEarnings(PlayerResources& bank, int reishi, int vida, in
     bank.disli += disli;
     bank.cpu += cpu;
     bank.key += key;
+
+    // Advance Quests
+    if (!m_quest.completed && reishi > 0)
+    {
+        m_quest.currentAmount += reishi;
+        if (m_quest.currentAmount >= m_quest.targetAmount)
+        {
+            m_quest.currentAmount = m_quest.targetAmount;
+            m_quest.completed = true;
+            bank.key += 1; // Award +1 Sector Key!
+        }
+    }
 }
 
 void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& bank, bool& outStartGame, int currentSector)
@@ -2032,13 +2044,17 @@ void UpgradeTree::DrawRightPanel(int currentStage)
         DrawTextMatrix(panelX + 48.0f, cy + 10.0f, m_sectors[i].name.c_str(), 1.7f, titleCol);
 
         // Status Label / Action hint
-        if (isCurrent)
+        if (isCompleted && isCurrent)
         {
-            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ AKTIF HEDEF / SECILI ]", 1.6f, { 1.0f, 0.85f, 0.25f, 1.0f });
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ SECILI : ZAFER KAZANILDI ]", 1.5f, { 0.35f, 0.95f, 0.50f, 1.0f });
         }
         else if (isCompleted)
         {
             DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ ZAFER KAZANILDI ]", 1.6f, { 0.35f, 0.95f, 0.50f, 1.0f });
+        }
+        else if (isCurrent)
+        {
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ AKTIF HEDEF / SECILI ]", 1.6f, { 1.0f, 0.85f, 0.25f, 1.0f });
         }
         else if (isUnlocked)
         {

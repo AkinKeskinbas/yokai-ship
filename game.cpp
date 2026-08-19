@@ -491,9 +491,9 @@ void Game::ResetRun()
     m_skillSlots[1] = { m_stats.skill2, 0.0f, 15.0f, "ASIRI YUKLEME", "E" };
     m_skillSlots[2] = { m_stats.skill3, 0.0f, 3.5f, "FAZ ATILMASI", "SHIFT" };
 
-    // Reset Calamity progress within the CURRENT Level
+    // Reset Calamity progress within the CURRENT Level (Higher sectors require more work!)
     m_calamity.current = 0.0f;
-    m_calamity.required = 100.0f + (float)(m_calamity.level - 1) * 35.0f;
+    m_calamity.required = 90.0f + (float)(m_calamity.level - 1) * 95.0f;
     m_calamityFillDisplay = 0.0f;
     m_bossTriggered = false;
     m_bossWarningTimer = 0.0f;
@@ -725,34 +725,21 @@ void Game::UpdateGameplay(float deltaTime)
         if (m_fuel <= 0.0f)
         {
             m_fuel = 0.0f;
-            m_runState = RunState::PlayerDying;
-            m_deathSequenceTimer = 2.4f;
-            m_explosionStaggerTimer = 0.0f;
-            m_superVacuumActive = false;
-
-            TriggerCameraShake(0.85f, 20.0f);
-            TriggerShockwave(m_playerPos, 280.0f, 0.0f);
-
-            VFXInstance exp;
-            exp.position = m_playerPos;
-            exp.lifetime = 0.0f;
-            exp.maxLifetime = 0.65f;
-            exp.scale = 2.8f;
-            exp.isMultiTexture = true;
-            exp.textureSequence = m_texExplosions;
-            m_vfxs.push_back(exp);
-
-            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+            m_runState = RunState::EnergyDepleted;
+            m_runSummaryInputDelay = 0.40f;
+            m_superVacuumActive = true; // Safely sweep remaining nearby materials
+            TriggerCameraShake(0.20f, 4.0f);
         }
 
         // Calamity progression over time
-        m_calamity.current += 1.2f * deltaTime;
+        m_calamity.current += 0.8f * deltaTime;
         if (m_calamity.current >= m_calamity.required)
         {
             m_calamity.current = m_calamity.required;
             if (!m_bossTriggered)
             {
-                TriggerBossEncounter(m_calamity.level >= 2 ? 2 : 1);
+                int bossToSpawn = std::min(4, m_calamity.level);
+                TriggerBossEncounter(bossToSpawn);
             }
         }
 
@@ -1415,7 +1402,7 @@ void Game::UpdateGameplay(float deltaTime)
                     if (m_soundShoot != -1) PlayAudio(m_soundShoot);
 
                     // Unlock next sector on the map!
-                    int defeatedLevel = (it->bossType == 4) ? 4 : (it->bossType == 3) ? 3 : (it->bossType == 2) ? 2 : m_calamity.level;
+                    int defeatedLevel = std::max(it->bossType, m_calamity.level);
                     m_upgradeTree.UnlockNextSector(defeatedLevel);
                     m_upgradeTree.SetCurrentSectorIndex(std::min(5, defeatedLevel + 1));
 
@@ -2559,6 +2546,75 @@ void Game::UpdateGameplay(float deltaTime)
 
         if (userProceed)
         {
+            m_currentScene = GameScene::UpgradePlaceholder;
+            ResetRun();
+        }
+    }
+
+    // =========================================================================
+    // ⚡ ENERGY DEPLETED STATE (Peaceful voyage end)
+    // =========================================================================
+    if (m_runState == RunState::EnergyDepleted)
+    {
+        if (m_runSummaryInputDelay > 0.0f)
+        {
+            m_runSummaryInputDelay -= deltaTime;
+        }
+
+        // Vacuum remaining nearby pickups
+        for (auto it = m_pickups.begin(); it != m_pickups.end(); )
+        {
+            float dx = m_playerPos.x - it->position.x;
+            float dy = m_playerPos.y - it->position.y;
+            float dist = sqrtf(dx * dx + dy * dy);
+            if (dist > 1.0f)
+            {
+                it->position.x += (dx / dist) * 750.0f * deltaTime;
+                it->position.y += (dy / dist) * 750.0f * deltaTime;
+            }
+            if (dist < 32.0f)
+            {
+                int gain = (int)ceilf((float)it->amount * m_stats.resourceMultiplier);
+                if (it->type == PickupType::Reishi)
+                {
+                    m_resources.reishi += gain;
+                    m_runStats.reishiCollected += gain;
+                    m_upgradeTree.AddRunEarnings(m_resources, gain, 0, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Vida)
+                {
+                    m_resources.vida += it->amount;
+                    m_runStats.vidaCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, it->amount, 0, 0, 0);
+                }
+                else if (it->type == PickupType::Disli)
+                {
+                    m_resources.disli += it->amount;
+                    m_runStats.disliCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, it->amount, 0, 0);
+                }
+                else if (it->type == PickupType::Cpu)
+                {
+                    m_resources.cpu += it->amount;
+                    m_runStats.cpuCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, it->amount, 0);
+                }
+                else if (it->type == PickupType::Key)
+                {
+                    m_resources.key += it->amount;
+                    m_runStats.keyCollected += it->amount;
+                    m_upgradeTree.AddRunEarnings(m_resources, 0, 0, 0, 0, it->amount);
+                }
+                it = m_pickups.erase(it);
+                continue;
+            }
+            ++it;
+        }
+
+        bool userProceed = (m_runSummaryInputDelay <= 0.0f) && (InputKeyboard_IsTrigger(KK_SPACE) || InputMouse_IsTrigger(MOUSE_BUTTON_LEFT));
+        if (userProceed)
+        {
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
             m_currentScene = GameScene::UpgradePlaceholder;
             ResetRun();
         }
@@ -3737,7 +3793,26 @@ void Game::DrawGameplay()
             float w = (float)texW * ast.scale;
             float h = (float)texH * ast.scale;
 
-            DirectX::XMFLOAT4 col = (ast.flashTimer > 0.0f) ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f) : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+            DirectX::XMFLOAT4 col = (ast.flashTimer > 0.0f)
+                ? DirectX::XMFLOAT4(1.0f, 0.3f, 0.3f, 1.0f)
+                : ast.isAnomalousSignal
+                    ? DirectX::XMFLOAT4(1.0f, 0.92f, 0.40f, 1.0f) // Glowing golden tint
+                    : (m_stats.rareScanner || m_stats.oreVision || m_stats.deepScan) && (ast.resourceAmount >= 12)
+                        ? DirectX::XMFLOAT4(0.50f, 1.0f, 0.85f, 1.0f) // Glowing emerald/cyan tint
+                        : (m_stats.oreVision || m_stats.deepScan)
+                            ? DirectX::XMFLOAT4(0.88f, 0.82f, 1.0f, 1.0f) // Subtle crystalline shimmer
+                            : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+            // Shimmer aura ring for valuable asteroids
+            if ((m_stats.rareScanner || m_stats.oreVision || m_stats.deepScan) && (ast.isAnomalousSignal || ast.resourceAmount >= 12))
+            {
+                float shimmerPulse = sinf(m_totalTime * 6.0f + ast.rotation) * 0.20f + 0.80f;
+                DirectX::XMFLOAT4 auraCol = ast.isAnomalousSignal
+                    ? DirectX::XMFLOAT4(1.0f, 0.85f, 0.20f, 0.80f * shimmerPulse)
+                    : DirectX::XMFLOAT4(0.30f, 0.95f, 0.75f, 0.70f * shimmerPulse);
+                Sprite_DrawCircle(ast.position.x + camX, ast.position.y + camY, ast.radius + 6.0f, 2.0f, auraCol, 24);
+            }
+
             Sprite_Draw(m_texAsteroid, ast.position.x + camX - w * 0.5f, ast.position.y + camY - h * 0.5f, w, h,
                 0, 0, texW, texH, ast.rotation, { 1.0f, 1.0f }, col);
 
@@ -3751,20 +3826,38 @@ void Game::DrawGameplay()
                 Sprite_DrawRect(wpX - 2.0f, wpY - 2.0f, 4.0f, 4.0f, { 1.0f, 0.85f, 0.3f, 1.0f });
             }
 
-            // Ore Vision & Deep Scan: Shows internal crystal core inside asteroid before breaking
-            if (m_stats.oreVision || m_stats.deepScan)
+            // Attached Floating Resource Preview Badge hovering above the asteroid
+            if (m_stats.oreVision || m_stats.deepScan || m_stats.rareScanner || m_stats.treasureSignal)
             {
-                float pulse = sinf(m_totalTime * 5.0f + ast.rotation) * 0.20f + 0.80f;
-                float coreX = ast.position.x + camX;
-                float coreY = ast.position.y + camY;
-                DirectX::XMFLOAT4 oreCol = ast.isAnomalousSignal
-                    ? DirectX::XMFLOAT4(1.0f, 0.85f, 0.25f, 0.95f * pulse)
-                    : (ast.resourceAmount >= 15)
-                        ? DirectX::XMFLOAT4(0.40f, 0.95f, 1.0f, 0.85f * pulse)
-                        : DirectX::XMFLOAT4(0.70f, 0.50f, 1.0f, 0.75f * pulse);
-
-                Sprite_DrawCircle(coreX, coreY, 9.0f, 2.0f, oreCol, 16);
-                Sprite_DrawRect(coreX - 2.0f, coreY - 2.0f, 4.0f, 4.0f, oreCol);
+                float tagY = ast.position.y + camY - h * 0.5f - 16.0f;
+                if (ast.isAnomalousSignal)
+                {
+                    float tagW = 110.0f;
+                    float tagX = ast.position.x + camX - tagW * 0.5f;
+                    Sprite_DrawRect(tagX, tagY, tagW, 14.0f, { 0.14f, 0.09f, 0.04f, 0.92f });
+                    Sprite_DrawRectBorder(tagX, tagY, tagW, 14.0f, 1.0f, { 1.0f, 0.85f, 0.25f, 0.95f });
+                    DrawMatrixString(tagX + 8.0f, tagY + 2.0f, "[ 1 ANAHTAR ]", 1.4f, m_texLaser, { 1.0f, 0.88f, 0.30f, 1.0f });
+                }
+                else if (ast.resourceAmount >= 12)
+                {
+                    char buf[36];
+                    sprintf_s(buf, "+%d REISHI+VIDA", ast.resourceAmount);
+                    float tagW = 116.0f;
+                    float tagX = ast.position.x + camX - tagW * 0.5f;
+                    Sprite_DrawRect(tagX, tagY, tagW, 14.0f, { 0.04f, 0.14f, 0.12f, 0.92f });
+                    Sprite_DrawRectBorder(tagX, tagY, tagW, 14.0f, 1.0f, { 0.35f, 0.95f, 0.75f, 0.90f });
+                    DrawMatrixString(tagX + 6.0f, tagY + 2.0f, buf, 1.3f, m_texLaser, { 0.40f, 1.0f, 0.80f, 1.0f });
+                }
+                else if (m_stats.deepScan)
+                {
+                    char buf[36];
+                    sprintf_s(buf, "+%d REISHI", ast.resourceAmount);
+                    float tagW = 82.0f;
+                    float tagX = ast.position.x + camX - tagW * 0.5f;
+                    Sprite_DrawRect(tagX, tagY, tagW, 13.0f, { 0.08f, 0.06f, 0.14f, 0.88f });
+                    Sprite_DrawRectBorder(tagX, tagY, tagW, 13.0f, 1.0f, { 0.70f, 0.60f, 0.90f, 0.75f });
+                    DrawMatrixString(tagX + 6.0f, tagY + 2.0f, buf, 1.3f, m_texLaser, { 0.85f, 0.78f, 0.98f, 0.95f });
+                }
             }
         }
     }
@@ -4336,6 +4429,12 @@ void Game::DrawGameplay()
         DrawChestModal();
     }
 
+    // Energy Depleted Dialog Popup Modal
+    if (m_runState == RunState::EnergyDepleted)
+    {
+        DrawEnergyDepletedModal();
+    }
+
     // End of Run summary modal
     if (m_runState == RunState::RunEnded)
     {
@@ -4569,6 +4668,50 @@ void Game::DrawRunSummary()
 
     // Small help tip below
     DrawMatrixString(cardX + 210.0f, cardY + 416.0f, "( TIKLA VEYA SPACE TUSUNA BAS )", 1.5f, m_texLaser, { 0.70f, 0.70f, 0.75f, 0.7f });
+}
+
+void Game::DrawEnergyDepletedModal()
+{
+    // Dim background overlay
+    Sprite_DrawRect(0.0f, 0.0f, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, { 0.03f, 0.02f, 0.06f, 0.88f });
+
+    float cardW = 640.0f;
+    float cardH = 360.0f;
+    float cardX = (float)SCREEN_WIDTH * 0.5f - cardW * 0.5f;
+    float cardY = (float)SCREEN_HEIGHT * 0.5f - cardH * 0.5f;
+
+    // Glowing Modal Frame
+    float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
+    DirectX::XMFLOAT4 borderCol{ 0.35f, 0.85f, 1.0f, pulse };
+    Sprite_DrawRect(cardX, cardY, cardW, cardH, { 0.08f, 0.06f, 0.12f, 0.98f });
+    Sprite_DrawRectBorder(cardX, cardY, cardW, cardH, 2.5f, borderCol);
+    Sprite_DrawRectBorder(cardX - 4.0f, cardY - 4.0f, cardW + 8.0f, cardH + 8.0f, 1.0f, { 0.35f, 0.85f, 1.0f, 0.30f });
+
+    // Header Title
+    DrawMatrixString(cardX + 175.0f, cardY + 32.0f, "ENERJI TUKENDI", 3.4f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
+    Sprite_DrawRect(cardX + 40.0f, cardY + 68.0f, cardW - 80.0f, 2.0f, { 1.0f, 0.85f, 0.25f, 0.50f });
+
+    // Main Narrative Dialogue
+    DrawMatrixString(cardX + 60.0f, cardY + 98.0f, "\"Bugunluk bu kadar yeter, enerjimiz bitti Kaptan!\"", 2.2f, m_texLaser, { 0.98f, 0.95f, 0.88f, 1.0f });
+
+    DrawMatrixString(cardX + 50.0f, cardY + 145.0f, "Sefer sirasinda toplanan tum madenler ve nadir parcalar", 1.8f, m_texLaser, { 0.80f, 0.85f, 0.92f, 0.90f });
+    DrawMatrixString(cardX + 85.0f, cardY + 172.0f, "guvenli sekilde ana gemi ambarina aktarildi.", 1.8f, m_texLaser, { 0.80f, 0.85f, 0.92f, 0.90f });
+
+    // Mini Earnings preview row
+    char rBuf[96];
+    sprintf_s(rBuf, "+%d REISHI | +%d VIDA | +%d DISLI | +%d CPU | +%d ANAHTAR",
+        m_runStats.reishiCollected, m_runStats.vidaCollected, m_runStats.disliCollected, m_runStats.cpuCollected, m_runStats.keyCollected);
+    DrawMatrixString(cardX + 50.0f, cardY + 218.0f, rBuf, 1.5f, m_texLaser, { 0.40f, 0.95f, 0.65f, 1.0f });
+
+    // Return Button (Center Bottom)
+    float btnW = 340.0f;
+    float btnH = 54.0f;
+    float btnX = cardX + cardW * 0.5f - btnW * 0.5f;
+    float btnY = cardY + cardH - 80.0f;
+
+    Sprite_DrawRect(btnX, btnY, btnW, btnH, { 0.15f, 0.25f, 0.35f, 0.95f });
+    Sprite_DrawRectBorder(btnX, btnY, btnW, btnH, 2.0f, { 0.40f, 0.95f, 1.0f, 1.0f });
+    DrawMatrixString(btnX + 26.0f, btnY + 17.0f, "[ MERKEZE DON (BOSLUK / TIKLA) ]", 1.8f, m_texLaser, { 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 void Game::DrawUpgrade()
