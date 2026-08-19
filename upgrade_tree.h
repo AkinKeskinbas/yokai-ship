@@ -123,17 +123,17 @@ struct PlayerResources
 
 struct QuestData
 {
-    std::string title = "1.000 REISHI TOPLA";
+    std::string title = "COLLECT 1,000 REISHI";
     int currentAmount = 0;
     int targetAmount = 1000;
-    std::string rewardText = "+1 SEKTOR ANAHTARI";
+    std::string rewardText = "+1 SECTOR KEY";
     bool completed = false;
 };
 
 struct SectorStage
 {
     int stageNumber = 1;
-    std::string name = "SOGUK TARLALARI";
+    std::string name = "CRYOGENIC FIELDS";
     bool isBoss = false;
     bool unlocked = true;
     bool completed = false;

@@ -487,9 +487,9 @@ void Game::ResetRun()
     }
 
     // Setup Active Skill Slots
-    m_skillSlots[0] = { m_stats.skill1, 0.0f, 10.0f, "ENERJI DALGASI", "Q" };
-    m_skillSlots[1] = { m_stats.skill2, 0.0f, 15.0f, "ASIRI YUKLEME", "E" };
-    m_skillSlots[2] = { m_stats.skill3, 0.0f, 3.5f, "FAZ ATILMASI", "SHIFT" };
+    m_skillSlots[0] = { m_stats.skill1, 0.0f, 10.0f, "EMP NOVA", "Q" };
+    m_skillSlots[1] = { m_stats.skill2, 0.0f, 15.0f, "OVERCHARGE", "E" };
+    m_skillSlots[2] = { m_stats.skill3, 0.0f, 3.5f, "PHASE DASH", "SPACE" };
 
     // Reset Calamity progress within the CURRENT Level (Higher sectors require more work!)
     m_calamity.current = 0.0f;
@@ -1374,22 +1374,12 @@ void Game::UpdateGameplay(float deltaTime)
             {
                 if (it->isBoss)
                 {
-                    // Boss Victory! Advance Sector & Drop Balanced Resources
-                    m_bossVictory = true;
-                    m_runState = RunState::BossDefeated;
-                    m_bossDeathTimer = 3.6f; // 3.6 seconds celebratory victory & vacuum
-                    m_explosionStaggerTimer = 0.0f;
-                    m_defeatedBossPos = it->position;
-                    m_superVacuumActive = true;
                     m_runStats.enemiesKilled++;
 
                     TriggerCameraShake(0.95f, 26.0f);
                     TriggerShockwave(it->position, 360.0f, 0.0f);
 
-                    // Clear lingering enemy bullets for safe victory
-                    m_enemyProjectiles.clear();
-
-                    // Initial giant core explosion on boss
+                    // Core Explosion VFX on boss
                     VFXInstance coreExp;
                     coreExp.position = it->position;
                     coreExp.lifetime = 0.0f;
@@ -1399,22 +1389,15 @@ void Game::UpdateGameplay(float deltaTime)
                     coreExp.textureSequence = m_texExplosions;
                     m_vfxs.push_back(coreExp);
 
-                    if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    if (m_soundPat != -1) PlayAudio(m_soundPat);
 
-                    // Unlock next sector on the map!
-                    int defeatedLevel = std::max(it->bossType, m_calamity.level);
-                    m_upgradeTree.UnlockNextSector(defeatedLevel);
-                    m_upgradeTree.SetCurrentSectorIndex(std::min(5, defeatedLevel + 1));
-
+                    // Drops calculation
                     int reishiDropCount = (it->bossType == 4) ? EnemyConfig::BossFinal.reishiDropCount : (it->bossType == 3) ? EnemyConfig::Boss3.reishiDropCount : (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
                     int reishiPerDrop   = (it->bossType == 4) ? EnemyConfig::BossFinal.reishiPerDrop   : (it->bossType == 3) ? EnemyConfig::Boss3.reishiPerDrop   : (it->bossType == 2) ? EnemyConfig::Boss2.reishiPerDrop   : EnemyConfig::Boss1.reishiPerDrop;
                     int vidaDropCount   = (it->bossType == 4) ? EnemyConfig::BossFinal.vidaDropCount   : (it->bossType == 3) ? EnemyConfig::Boss3.vidaDropCount   : (it->bossType == 2) ? EnemyConfig::Boss2.vidaDropCount   : EnemyConfig::Boss1.vidaDropCount;
                     int disliDropCount  = (it->bossType == 4) ? EnemyConfig::BossFinal.disliDropCount  : (it->bossType == 3) ? EnemyConfig::Boss3.disliDropCount  : (it->bossType == 2) ? EnemyConfig::Boss2.disliDropCount  : EnemyConfig::Boss1.disliDropCount;
                     int cpuDropCount    = (it->bossType == 4) ? EnemyConfig::BossFinal.cpuDropCount    : (it->bossType == 3) ? EnemyConfig::Boss3.cpuDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.cpuDropCount    : EnemyConfig::Boss1.cpuDropCount;
                     int keyDropCount    = (it->bossType == 4) ? EnemyConfig::BossFinal.keyDropCount    : (it->bossType == 3) ? EnemyConfig::Boss3.keyDropCount    : (it->bossType == 2) ? EnemyConfig::Boss2.keyDropCount    : EnemyConfig::Boss1.keyDropCount;
-
-                    m_bossOrbs.clear();
-                    m_bossBlades.clear();
 
                     // 1. Reishi Crystals
                     for (int k = 0; k < reishiDropCount; ++k)
@@ -1429,7 +1412,7 @@ void Game::UpdateGameplay(float deltaTime)
                         r.amount = reishiPerDrop;
                         m_pickups.push_back(r);
                     }
-                    // 2. Vidas (vida.png)
+                    // 2. Screws
                     for (int k = 0; k < vidaDropCount; ++k)
                     {
                         ResourcePickup v;
@@ -1442,7 +1425,7 @@ void Game::UpdateGameplay(float deltaTime)
                         v.amount = 1;
                         m_pickups.push_back(v);
                     }
-                    // 3. Dişlis (disli.png)
+                    // 3. Gears
                     for (int k = 0; k < disliDropCount; ++k)
                     {
                         ResourcePickup d;
@@ -1455,7 +1438,7 @@ void Game::UpdateGameplay(float deltaTime)
                         d.amount = 1;
                         m_pickups.push_back(d);
                     }
-                    // 4. Quantum CPUs (cpu.png)
+                    // 4. CPUs
                     for (int k = 0; k < cpuDropCount; ++k)
                     {
                         ResourcePickup c;
@@ -1468,18 +1451,72 @@ void Game::UpdateGameplay(float deltaTime)
                         c.amount = 1;
                         m_pickups.push_back(c);
                     }
-                    // 5. Sector Key (key.png)
+                    // 5. Keys
                     for (int k = 0; k < keyDropCount; ++k)
                     {
                         ResourcePickup ky;
                         ky.position = it->position;
                         float angle = RandomFloat(0.0f, 2.0f * PI);
-                        float spd = RandomFloat(60.0f, 160.0f);
+                        float spd = RandomFloat(70.0f, 180.0f);
                         ky.velocity = { cosf(angle) * spd, sinf(angle) * spd };
-                        ky.scale = 0.10f;
+                        ky.scale = 0.11f;
                         ky.type = PickupType::Key;
                         ky.amount = 1;
                         m_pickups.push_back(ky);
+                    }
+
+                    if (m_calamity.level >= 5)
+                    {
+                        m_sector5DefeatedCount++;
+                        // If queue has remaining bosses, spawn next one!
+                        if (!m_sector5BossQueue.empty())
+                        {
+                            int nextBoss = m_sector5BossQueue.back();
+                            m_sector5BossQueue.pop_back();
+                            float spawnX = RandomFloat((float)SCREEN_WIDTH * 0.25f, (float)SCREEN_WIDTH * 0.75f);
+                            SpawnBoss(nextBoss, spawnX, -150.0f);
+                        }
+
+                        // Check if all bosses are defeated in Sector 5
+                        bool anyOtherBossAlive = false;
+                        for (const auto& otherAst : m_asteroids)
+                        {
+                            if (&otherAst != &(*it) && otherAst.isBoss && !otherAst.destroyed)
+                            {
+                                anyOtherBossAlive = true;
+                                break;
+                            }
+                        }
+
+                        if (!anyOtherBossAlive && m_sector5BossQueue.empty())
+                        {
+                            m_bossVictory = true;
+                            m_runState = RunState::BossDefeated;
+                            m_bossDeathTimer = 3.6f;
+                            m_defeatedBossPos = it->position;
+                            m_superVacuumActive = true;
+                            m_enemyProjectiles.clear();
+                            m_bossOrbs.clear();
+                            m_bossBlades.clear();
+
+                            m_upgradeTree.UnlockNextSector(5);
+                            m_upgradeTree.SetCurrentSectorIndex(5);
+                        }
+                    }
+                    else
+                    {
+                        m_bossVictory = true;
+                        m_runState = RunState::BossDefeated;
+                        m_bossDeathTimer = 3.6f;
+                        m_defeatedBossPos = it->position;
+                        m_superVacuumActive = true;
+                        m_enemyProjectiles.clear();
+                        m_bossOrbs.clear();
+                        m_bossBlades.clear();
+
+                        int defeatedLevel = std::max(it->bossType, m_calamity.level);
+                        m_upgradeTree.UnlockNextSector(defeatedLevel);
+                        m_upgradeTree.SetCurrentSectorIndex(std::min(5, defeatedLevel + 1));
                     }
                 }
                 else
@@ -3384,6 +3421,30 @@ void Game::TriggerBossEncounter(int bossType)
     m_bossTriggered = true;
     m_bossWarningTimer = 3.5f;
 
+    if (m_calamity.level >= 5)
+    {
+        // Sector 5 Multi-Boss Rush:
+        // All 4 bosses participate. 2 spawn simultaneously, remaining bosses spawn as each is defeated!
+        m_sector5BossQueue = { 1, 2, 3, 4 };
+        std::shuffle(m_sector5BossQueue.begin(), m_sector5BossQueue.end(), std::mt19937(std::random_device{}()));
+        m_sector5DefeatedCount = 0;
+
+        int b1 = m_sector5BossQueue.back(); m_sector5BossQueue.pop_back();
+        int b2 = m_sector5BossQueue.back(); m_sector5BossQueue.pop_back();
+
+        SpawnBoss(b1, (float)SCREEN_WIDTH * 0.30f, -140.0f);
+        SpawnBoss(b2, (float)SCREEN_WIDTH * 0.70f, -140.0f);
+    }
+    else
+    {
+        SpawnBoss(bossType, (float)SCREEN_WIDTH * 0.5f, -150.0f);
+    }
+}
+
+void Game::SpawnBoss(int bossType, float startX, float startY)
+{
+    if (startX < 0.0f) startX = (float)SCREEN_WIDTH * 0.5f;
+
     Asteroid boss;
     boss.isBoss = true;
     boss.destroyed = false;
@@ -3392,7 +3453,7 @@ void Game::TriggerBossEncounter(int bossType)
 
     if (bossType == 1)
     {
-        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -140.0f);
+        boss.position = DirectX::XMFLOAT2(startX, startY);
         boss.velocity = DirectX::XMFLOAT2(0.0f, EnemyConfig::Boss1.moveSpeed);
         boss.rotation = 0.0f;
         boss.rotationSpeed = EnemyConfig::Boss1.rotationSpeed;
@@ -3404,7 +3465,7 @@ void Game::TriggerBossEncounter(int bossType)
     }
     else if (bossType == 2) // Boss 2 (Void Destroyer)
     {
-        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -140.0f);
+        boss.position = DirectX::XMFLOAT2(startX, startY);
         boss.velocity = DirectX::XMFLOAT2(0.0f, 65.0f);
         boss.rotation = 0.0f;
         boss.rotationSpeed = EnemyConfig::Boss2.normalRotationSpeed;
@@ -3419,11 +3480,11 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bossPhaseTimer = 0.0f;
         boss.bossShootTimer = EnemyConfig::Boss2.normalShootInterval;
         boss.bossSpiralFireTimer = 0.0f;
-        boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, 220.0f);
+        boss.bossTargetPos = DirectX::XMFLOAT2(startX, 220.0f);
     }
-    else if (bossType == 3) // bossType == 3 (Torii Yokai / Purple Sweeping Laser Boss)
+    else if (bossType == 3) // Boss 3 (Torii Yokai / Sweeping Laser Boss)
     {
-        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -160.0f);
+        boss.position = DirectX::XMFLOAT2(startX, startY);
         boss.velocity = DirectX::XMFLOAT2(0.0f, 60.0f);
         boss.rotation = 0.0f;
         boss.rotationSpeed = 0.0f;
@@ -3440,11 +3501,11 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bossLaserAngle = 1.5707963f; // PI / 2 (pointing straight down)
         boss.bossLaserSweepFreq = EnemyConfig::Boss3.laserTrackingTurnSpeed;
         boss.bossLaserDamageTimer = 0.0f;
-        boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, EnemyConfig::Boss3.hoverY);
+        boss.bossTargetPos = DirectX::XMFLOAT2(startX, EnemyConfig::Boss3.hoverY);
     }
-    else // bossType == 4 (Final Boss - Kitsune Yokai Entity)
+    else // Boss 4 (Final Boss - Kitsune Yokai Entity)
     {
-        boss.position = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, -180.0f);
+        boss.position = DirectX::XMFLOAT2(startX, startY);
         boss.velocity = DirectX::XMFLOAT2(0.0f, 60.0f);
         boss.rotation = 0.0f;
         boss.rotationSpeed = 0.0f;
@@ -3465,30 +3526,10 @@ void Game::TriggerBossEncounter(int bossType)
         boss.bladePrisonTimer = EnemyConfig::BossFinal.bladePrisonCooldown;
         boss.ghostOrbTimer = 0.0f;
         boss.finalAttackStep = 0;
-        boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, EnemyConfig::BossFinal.hoverY);
+        boss.bossTargetPos = DirectX::XMFLOAT2(startX, EnemyConfig::BossFinal.hoverY);
 
         // Spawn 4 initial destructible shield orbs around the boss
-        m_bossOrbs.clear();
-        m_bossBlades.clear();
-        float startingAngles[4] = { 0.0f, 1.5707963f, 3.14159265f, 4.712389f };
-        for (int k = 0; k < 4; ++k)
-        {
-            BossOrb orb;
-            orb.angle = startingAngles[k];
-            orb.orbitRadius = EnemyConfig::BossFinal.orbOrbitRadius;
-            orb.position = { boss.position.x + cosf(orb.angle) * orb.orbitRadius, boss.position.y + sinf(orb.angle) * orb.orbitRadius };
-            orb.hp = EnemyConfig::BossFinal.orbHp;
-            orb.maxHp = EnemyConfig::BossFinal.orbHp;
-            orb.radius = EnemyConfig::BossFinal.orbRadius;
-            orb.scale = EnemyConfig::BossFinal.orbScale;
-            orb.fireInterval = EnemyConfig::BossFinal.orbFireInterval;
-            orb.fireTimer = 0.4f + (float)k * 0.45f; // Staggered fire timers
-            orb.attackPattern = k % 3; // 0: Aimed, 1: 3-way, 2: 6-way radial
-            orb.flashTimer = 0.0f;
-            orb.alive = true;
-            orb.isGhost = false;
-            m_bossOrbs.push_back(orb);
-        }
+        SpawnGhostOrbs(boss.position);
     }
 
     m_asteroids.push_back(boss);
@@ -3780,10 +3821,10 @@ void Game::DrawGameplay()
 
             // Boss Title Badge
             const char* bossTitle = (ast.bossType == 4)
-                ? (ast.invulnerable ? "PATRON IV : KITSUNE YOKAI [ KALKAN AKTIF ]" : "PATRON IV : KITSUNE YOKAI")
-                : (ast.bossType == 3) ? "PATRON III : TORII YOKAI"
-                : (ast.bossType == 2) ? "PATRON II : VOID DESTROYER"
-                : "PATRON I : GARGANTUAN";
+                ? (ast.invulnerable ? "BOSS IV : KITSUNE YOKAI [ SHIELD ACTIVE ]" : "BOSS IV : KITSUNE YOKAI")
+                : (ast.bossType == 3) ? "BOSS III : TORII YOKAI"
+                : (ast.bossType == 2) ? "BOSS II : VOID DESTROYER"
+                : "BOSS I : GARGANTUAN";
             DrawMatrixString(barX - 10.0f, barY - 14.0f, bossTitle, 1.3f, m_texLaser, { 1.0f, 0.85f, 0.3f, 1.0f });
         }
         else if (m_texAsteroid != -1)
@@ -3832,21 +3873,21 @@ void Game::DrawGameplay()
                 float tagY = ast.position.y + camY - h * 0.5f - 16.0f;
                 if (ast.isAnomalousSignal)
                 {
-                    float tagW = 110.0f;
+                    float tagW = 90.0f;
                     float tagX = ast.position.x + camX - tagW * 0.5f;
                     Sprite_DrawRect(tagX, tagY, tagW, 14.0f, { 0.14f, 0.09f, 0.04f, 0.92f });
                     Sprite_DrawRectBorder(tagX, tagY, tagW, 14.0f, 1.0f, { 1.0f, 0.85f, 0.25f, 0.95f });
-                    DrawMatrixString(tagX + 8.0f, tagY + 2.0f, "[ 1 ANAHTAR ]", 1.4f, m_texLaser, { 1.0f, 0.88f, 0.30f, 1.0f });
+                    DrawMatrixString(tagX + 12.0f, tagY + 2.0f, "[ 1 KEY ]", 1.4f, m_texLaser, { 1.0f, 0.88f, 0.30f, 1.0f });
                 }
                 else if (ast.resourceAmount >= 12)
                 {
                     char buf[36];
-                    sprintf_s(buf, "+%d REISHI+VIDA", ast.resourceAmount);
-                    float tagW = 116.0f;
+                    sprintf_s(buf, "+%d REISHI+SCREWS", ast.resourceAmount);
+                    float tagW = 126.0f;
                     float tagX = ast.position.x + camX - tagW * 0.5f;
                     Sprite_DrawRect(tagX, tagY, tagW, 14.0f, { 0.04f, 0.14f, 0.12f, 0.92f });
                     Sprite_DrawRectBorder(tagX, tagY, tagW, 14.0f, 1.0f, { 0.35f, 0.95f, 0.75f, 0.90f });
-                    DrawMatrixString(tagX + 6.0f, tagY + 2.0f, buf, 1.3f, m_texLaser, { 0.40f, 1.0f, 0.80f, 1.0f });
+                    DrawMatrixString(tagX + 6.0f, tagY + 2.0f, buf, 1.2f, m_texLaser, { 0.40f, 1.0f, 0.80f, 1.0f });
                 }
                 else if (m_stats.deepScan)
                 {
@@ -3882,7 +3923,7 @@ void Game::DrawGameplay()
         }
 
         // Label above chest
-        DrawMatrixString(cX - 55.0f, cY - chest.radius - 18.0f, "[ 1 ANAHTAR ]", 1.6f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
+        DrawMatrixString(cX - 40.0f, cY - chest.radius - 18.0f, "[ 1 KEY ]", 1.6f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
     }
 
     // 2c. Draw Final Boss Orbiting Cores / Ghost Orbs (boss_orb.png)
@@ -4335,7 +4376,7 @@ void Game::DrawGameplay()
             float bY = 88.0f;
             Sprite_DrawRect(bX, bY, bW, bH, { 0.08f, 0.18f, 0.22f, 0.85f });
             Sprite_DrawRectBorder(bX, bY, bW, bH, 1.5f, { 0.35f, 0.95f, 0.85f, pulse });
-            DrawMatrixString(bX + 16.0f, bY + 7.0f, "* HAZINE SINYALI: ZENGIN DAMAR TESPIT EDILDI *", 1.5f, m_texLaser, { 0.40f, 1.0f, 0.85f, 1.0f });
+            DrawMatrixString(bX + 16.0f, bY + 7.0f, "* TREASURE SIGNAL: RICH VEIN DETECTED *", 1.5f, m_texLaser, { 0.40f, 1.0f, 0.85f, 1.0f });
         }
     }
 
@@ -4387,17 +4428,17 @@ void Game::DrawGameplay()
     float barX = 40.0f;
 
     // Left Title
-    DrawMatrixString(barX, meterY, "AFET SAYACI (CALAMITY PROGRESS)", 2.2f, m_texLaser, { 1.0f, 0.40f, 0.40f, 1.0f });
+    DrawMatrixString(barX, meterY, "CALAMITY PROGRESS", 2.2f, m_texLaser, { 1.0f, 0.40f, 0.40f, 1.0f });
 
     // Center Percentage
     int calPercent = (int)(std::clamp(m_calamityFillDisplay, 0.0f, 1.0f) * 100.0f);
     char pctBuf[32];
-    sprintf_s(pctBuf, "BOSS YAKLASIMI: %d%%", calPercent);
+    sprintf_s(pctBuf, "BOSS APPROACH: %d%%", calPercent);
     DrawMatrixString(SCREEN_WIDTH * 0.5f - 110.0f, meterY, pctBuf, 2.0f, m_texLaser, { 1.0f, 0.90f, 0.85f, 1.0f });
 
     // Right Stage Indicator
     char secBuf[32];
-    sprintf_s(secBuf, "SEKTOR %d", m_calamity.level);
+    sprintf_s(secBuf, "SECTOR %d", m_calamity.level);
     DrawMatrixString(barX + barW - 120.0f, meterY, secBuf, 2.2f, m_texLaser, { 1.0f, 0.70f, 0.25f, 1.0f });
 
     // Bar Background
@@ -4469,16 +4510,16 @@ void Game::DrawChestModal()
     }
 
     // Title
-    DrawMatrixString(cardX + 90.0f, cardY + 115.0f, "KADIM UZAY SANDIGI BULUNDU!", 2.4f, m_texLaser, { 1.0f, 0.88f, 0.30f, 1.0f });
+    DrawMatrixString(cardX + 60.0f, cardY + 115.0f, "ANCIENT SPACE CHEST DISCOVERED!", 2.4f, m_texLaser, { 1.0f, 0.88f, 0.30f, 1.0f });
 
     // Description
-    DrawMatrixString(cardX + 50.0f, cardY + 150.0f, "Icinde yuksek miktarda CPU, Disli, Vida ve Reishi sakli.", 1.7f, m_texLaser, { 0.85f, 0.88f, 0.92f, 0.9f });
+    DrawMatrixString(cardX + 45.0f, cardY + 150.0f, "Contains massive amounts of CPU, Gears, Screws, and Reishi.", 1.7f, m_texLaser, { 0.85f, 0.88f, 0.92f, 0.9f });
 
     // Status: Current keys
     char keyBuf[48];
-    sprintf_s(keyBuf, "MEVCUT ANAHTAR: %d ADET", m_resources.key);
+    sprintf_s(keyBuf, "AVAILABLE KEYS: %d", m_resources.key);
     DirectX::XMFLOAT4 keyCol = (m_resources.key >= 1) ? DirectX::XMFLOAT4(0.35f, 0.95f, 0.55f, 1.0f) : DirectX::XMFLOAT4(0.95f, 0.35f, 0.35f, 1.0f);
-    DrawMatrixString(cardX + 175.0f, cardY + 185.0f, keyBuf, 1.9f, m_texLaser, keyCol);
+    DrawMatrixString(cardX + 185.0f, cardY + 185.0f, keyBuf, 1.9f, m_texLaser, keyCol);
 
     // Buttons
     float btnW = 220.0f;
@@ -4497,17 +4538,17 @@ void Game::DrawChestModal()
 
     if (canOpen)
     {
-        DrawMatrixString(btn1X + 18.0f, btnY + 16.0f, "[ 1 ANAHTAR ILE AC (E) ]", 1.8f, m_texLaser, { 0.4f, 1.0f, 0.7f, 1.0f });
+        DrawMatrixString(btn1X + 16.0f, btnY + 16.0f, "[ OPEN WITH 1 KEY (E) ]", 1.8f, m_texLaser, { 0.4f, 1.0f, 0.7f, 1.0f });
     }
     else
     {
-        DrawMatrixString(btn1X + 16.0f, btnY + 16.0f, "[ YETERSIZ ANAHTAR ]", 1.8f, m_texLaser, { 0.6f, 0.5f, 0.5f, 0.7f });
+        DrawMatrixString(btn1X + 24.0f, btnY + 16.0f, "[ INSUFFICIENT KEYS ]", 1.8f, m_texLaser, { 0.6f, 0.5f, 0.5f, 0.7f });
     }
 
     // Button 2: Decline & Save Key
     Sprite_DrawRect(btn2X, btnY, btnW, btnH, { 0.16f, 0.10f, 0.16f, 0.95f });
     Sprite_DrawRectBorder(btn2X, btnY, btnW, btnH, 2.0f, { 0.85f, 0.45f, 0.45f, 0.9f });
-    DrawMatrixString(btn2X + 28.0f, btnY + 16.0f, "[ VAZGEC (ESC) ]", 1.8f, m_texLaser, { 0.95f, 0.75f, 0.75f, 1.0f });
+    DrawMatrixString(btn2X + 38.0f, btnY + 16.0f, "[ DECLINE (ESC) ]", 1.8f, m_texLaser, { 0.95f, 0.75f, 0.75f, 1.0f });
 }
 
 void Game::DrawRunSummary()
@@ -4535,22 +4576,22 @@ void Game::DrawRunSummary()
     // Top Header Banner
     if (m_bossVictory)
     {
-        DrawMatrixString(cardX + 45.0f, cardY + 24.0f, "SEKTOR ZAFERI: BOSS ETKISIZ HALE GETIRILDI!", 2.7f, m_texLaser, { 1.0f, 0.88f, 0.25f, 1.0f });
+        DrawMatrixString(cardX + 45.0f, cardY + 24.0f, "SECTOR VICTORY: CALAMITY BOSS ELIMINATED!", 2.6f, m_texLaser, { 1.0f, 0.88f, 0.25f, 1.0f });
     }
     else if (m_playerHealth <= 0)
     {
-        DrawMatrixString(cardX + 48.0f, cardY + 24.0f, "GEMI HASAR GORDU: KURTARMA MODULU DEVREDE", 2.6f, m_texLaser, { 1.0f, 0.35f, 0.35f, 1.0f });
+        DrawMatrixString(cardX + 48.0f, cardY + 24.0f, "HULL BREACH: EMERGENCY EVACUATION PROTOCOL", 2.5f, m_texLaser, { 1.0f, 0.35f, 0.35f, 1.0f });
     }
     else
     {
-        DrawMatrixString(cardX + 70.0f, cardY + 24.0f, "SEFER TAMAMLANDI: GEMI USSE DONDU", 2.8f, m_texLaser, { 0.40f, 0.95f, 1.0f, 1.0f });
+        DrawMatrixString(cardX + 70.0f, cardY + 24.0f, "EXPEDITION COMPLETE: RETURNED TO BASE", 2.7f, m_texLaser, { 0.40f, 0.95f, 1.0f, 1.0f });
     }
 
-    DrawMatrixString(cardX + 165.0f, cardY + 58.0f, "TOPLANAN SEFER GANIMETI VE RAPORU", 1.8f, m_texLaser, { 0.85f, 0.85f, 0.90f, 0.85f });
+    DrawMatrixString(cardX + 165.0f, cardY + 58.0f, "MISSION LOOT & EXPEDITION REPORT", 1.8f, m_texLaser, { 0.85f, 0.85f, 0.90f, 0.85f });
     Sprite_DrawRect(cardX + 24.0f, cardY + 84.0f, cardW - 48.0f, 1.5f, { 0.35f, 0.45f, 0.60f, 0.5f });
 
     // ==========================================
-    // 5 RESOURCE LOOT CARDS (Reishi, Vida, Dişli, CPU, Key)
+    // 5 RESOURCE LOOT CARDS (Reishi, Screws, Gears, CPU, Keys)
     // ==========================================
     float startLootX = cardX + 28.0f;
     float lootY = cardY + 104.0f;
@@ -4569,10 +4610,10 @@ void Game::DrawRunSummary()
 
     const LootItem loot[5] = {
         { 0, "REISHI", m_runStats.reishiCollected, m_texResources, { 0.70f, 0.35f, 1.0f, 1.0f } },
-        { 1, "VIDA", m_runStats.vidaCollected, m_texVida, { 0.40f, 0.85f, 1.0f, 1.0f } },
-        { 2, "DISLI", m_runStats.disliCollected, m_texDisli, { 1.0f, 0.65f, 0.20f, 1.0f } },
+        { 1, "SCREWS", m_runStats.vidaCollected, m_texVida, { 0.40f, 0.85f, 1.0f, 1.0f } },
+        { 2, "GEARS", m_runStats.disliCollected, m_texDisli, { 1.0f, 0.65f, 0.20f, 1.0f } },
         { 3, "CPU", m_runStats.cpuCollected, m_texCpu, { 0.35f, 0.95f, 1.0f, 1.0f } },
-        { 4, "ANAHTAR", m_runStats.keyCollected, m_texKey, { 1.0f, 0.85f, 0.25f, 1.0f } }
+        { 4, "KEYS", m_runStats.keyCollected, m_texKey, { 1.0f, 0.85f, 0.25f, 1.0f } }
     };
 
     for (int i = 0; i < 5; ++i)
@@ -4664,10 +4705,10 @@ void Game::DrawRunSummary()
     Sprite_DrawRect(btnX, btnY, btnW, btnH, btnBg);
     Sprite_DrawRectBorder(btnX, btnY, btnW, btnH, 2.0f, btnBorder);
 
-    DrawMatrixString(btnX + 22.0f, btnY + 16.0f, "[ DEVAM ET / MARKET VE YUKSELTMELER ]", 2.0f, m_texLaser, { 1.0f, 0.95f, 0.85f, 1.0f });
+    DrawMatrixString(btnX + 32.0f, btnY + 16.0f, "[ PROCEED / UPGRADE TREE ]", 2.0f, m_texLaser, { 1.0f, 0.95f, 0.85f, 1.0f });
 
     // Small help tip below
-    DrawMatrixString(cardX + 210.0f, cardY + 416.0f, "( TIKLA VEYA SPACE TUSUNA BAS )", 1.5f, m_texLaser, { 0.70f, 0.70f, 0.75f, 0.7f });
+    DrawMatrixString(cardX + 225.0f, cardY + 416.0f, "( CLICK OR PRESS SPACE )", 1.5f, m_texLaser, { 0.70f, 0.70f, 0.75f, 0.7f });
 }
 
 void Game::DrawEnergyDepletedModal()
@@ -4688,18 +4729,18 @@ void Game::DrawEnergyDepletedModal()
     Sprite_DrawRectBorder(cardX - 4.0f, cardY - 4.0f, cardW + 8.0f, cardH + 8.0f, 1.0f, { 0.35f, 0.85f, 1.0f, 0.30f });
 
     // Header Title
-    DrawMatrixString(cardX + 175.0f, cardY + 32.0f, "ENERJI TUKENDI", 3.4f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
+    DrawMatrixString(cardX + 175.0f, cardY + 32.0f, "ENERGY DEPLETED", 3.4f, m_texLaser, { 1.0f, 0.85f, 0.25f, 1.0f });
     Sprite_DrawRect(cardX + 40.0f, cardY + 68.0f, cardW - 80.0f, 2.0f, { 1.0f, 0.85f, 0.25f, 0.50f });
 
     // Main Narrative Dialogue
-    DrawMatrixString(cardX + 60.0f, cardY + 98.0f, "\"Bugunluk bu kadar yeter, enerjimiz bitti Kaptan!\"", 2.2f, m_texLaser, { 0.98f, 0.95f, 0.88f, 1.0f });
+    DrawMatrixString(cardX + 38.0f, cardY + 98.0f, "\"That's enough for today, we are out of energy Captain!\"", 2.0f, m_texLaser, { 0.98f, 0.95f, 0.88f, 1.0f });
 
-    DrawMatrixString(cardX + 50.0f, cardY + 145.0f, "Sefer sirasinda toplanan tum madenler ve nadir parcalar", 1.8f, m_texLaser, { 0.80f, 0.85f, 0.92f, 0.90f });
-    DrawMatrixString(cardX + 85.0f, cardY + 172.0f, "guvenli sekilde ana gemi ambarina aktarildi.", 1.8f, m_texLaser, { 0.80f, 0.85f, 0.92f, 0.90f });
+    DrawMatrixString(cardX + 40.0f, cardY + 145.0f, "All minerals and rare components gathered during the expedition", 1.7f, m_texLaser, { 0.80f, 0.85f, 0.92f, 0.90f });
+    DrawMatrixString(cardX + 75.0f, cardY + 172.0f, "have been safely transferred to the mothership cargo bay.", 1.7f, m_texLaser, { 0.80f, 0.85f, 0.92f, 0.90f });
 
     // Mini Earnings preview row
     char rBuf[96];
-    sprintf_s(rBuf, "+%d REISHI | +%d VIDA | +%d DISLI | +%d CPU | +%d ANAHTAR",
+    sprintf_s(rBuf, "+%d REISHI | +%d SCREWS | +%d GEARS | +%d CPU | +%d KEYS",
         m_runStats.reishiCollected, m_runStats.vidaCollected, m_runStats.disliCollected, m_runStats.cpuCollected, m_runStats.keyCollected);
     DrawMatrixString(cardX + 50.0f, cardY + 218.0f, rBuf, 1.5f, m_texLaser, { 0.40f, 0.95f, 0.65f, 1.0f });
 
@@ -4711,7 +4752,7 @@ void Game::DrawEnergyDepletedModal()
 
     Sprite_DrawRect(btnX, btnY, btnW, btnH, { 0.15f, 0.25f, 0.35f, 0.95f });
     Sprite_DrawRectBorder(btnX, btnY, btnW, btnH, 2.0f, { 0.40f, 0.95f, 1.0f, 1.0f });
-    DrawMatrixString(btnX + 26.0f, btnY + 17.0f, "[ MERKEZE DON (BOSLUK / TIKLA) ]", 1.8f, m_texLaser, { 1.0f, 1.0f, 1.0f, 1.0f });
+    DrawMatrixString(btnX + 22.0f, btnY + 17.0f, "[ RETURN TO BASE (SPACE / CLICK) ]", 1.7f, m_texLaser, { 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 void Game::DrawUpgrade()

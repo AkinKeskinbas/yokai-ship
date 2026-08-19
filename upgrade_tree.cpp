@@ -178,11 +178,11 @@ void UpgradeTree::Initialize(int texLaser, int texNumber, int texHeart, int texR
 
     // Setup 5 Sectors
     m_sectors.clear();
-    m_sectors.push_back({ 1, "SOGUK TARLALARI", false, true, false });
-    m_sectors.push_back({ 2, "ASTEROID KUSAGI", false, false, false });
-    m_sectors.push_back({ 3, "NEBULA GECIDI", false, false, false });
-    m_sectors.push_back({ 4, "PLAZMA FIRTINASI", false, false, false });
-    m_sectors.push_back({ 5, "AFET CEKIRDEGI (BOSS)", true, false, false });
+    m_sectors.push_back({ 1, "CRYOGENIC FIELDS", false, true, false });
+    m_sectors.push_back({ 2, "ASTEROID BELT", false, false, false });
+    m_sectors.push_back({ 3, "NEBULA PASSAGE", false, false, false });
+    m_sectors.push_back({ 4, "PLASMA STORM", false, false, false });
+    m_sectors.push_back({ 5, "CALAMITY CORE (BOSS RUSH)", true, false, false });
     m_currentSectorIndex = 1;
 }
 
@@ -193,11 +193,10 @@ void UpgradeTree::UnlockNextSector(int completedSector)
         if (m_sectors[i].stageNumber == completedSector)
         {
             m_sectors[i].completed = true;
-            if (i + 1 < (int)m_sectors.size())
-            {
-                m_sectors[i + 1].unlocked = true;
-                m_currentSectorIndex = m_sectors[i + 1].stageNumber;
-            }
+        }
+        if (m_sectors[i].stageNumber == completedSector + 1)
+        {
+            m_sectors[i].unlocked = true;
         }
     }
 }
@@ -210,10 +209,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 0;
-        n.title = "ANA KOMUTA MERKEZI";
-        n.categoryName = "ANA MODUL";
-        n.description = "Tum gemi alt sistemlerinin bagli oldugu merkezi kuantum cekirdegi.";
-        n.effectFormat = "Merkezi Ag Aktif";
+        n.title = "COMMAND CORE HUB";
+        n.categoryName = "CORE MODULE";
+        n.description = "Central quantum mainframe powering and connecting all ship subsystems.";
+        n.effectFormat = "Command Mainframe Online";
         n.branch = NodeBranch::Core;
         n.icon = NodeIconType::CoreHub;
         n.gridPos = { 0.0f, 0.0f };
@@ -230,10 +229,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 1;
-        n.title = "LAZER GUC ASIRIMI I";
-        n.categoryName = "SILAH / GUC";
-        n.description = "Lazer enerji rezonansini yukselterek temel DPS hasarini artirir.";
-        n.effectFormat = "+15 Lazer Hasari";
+        n.title = "LASER OVERCLOCK I";
+        n.categoryName = "WEAPONS / POWER";
+        n.description = "Boosts laser core frequency to increase base DPS damage.";
+        n.effectFormat = "+15 Laser Damage";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::LaserBeam;
         n.gridPos = { 0.0f, -1.0f };
@@ -246,10 +245,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 2;
-        n.title = "TERMAL DELICI II";
-        n.categoryName = "SILAH / GUC";
-        n.description = "Yuksek frekansli termal plazma ile hedef materyali hizla eritir.";
-        n.effectFormat = "+30 Lazer Hasari";
+        n.title = "THERMAL MELTER II";
+        n.categoryName = "WEAPONS / POWER";
+        n.description = "Fires high-intensity thermal plasma to dissolve tough asteroid crusts.";
+        n.effectFormat = "+30 Laser Damage";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Fire;
         n.gridPos = { 0.0f, -2.0f };
@@ -262,10 +261,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 3;
-        n.title = "DELICI ISIN (PIERCING BEAM)";
-        n.categoryName = "SILAH / GUC";
-        n.description = "Lazer ilk hedefi delip gecer ve arkadaki ikinci hedefe de hasar verir.";
-        n.effectFormat = "Delici Isin: Cift Hedef Vurusu";
+        n.title = "PIERCING BEAM";
+        n.categoryName = "WEAPONS / POWER";
+        n.description = "Laser drills directly through the primary target to hit secondary targets behind.";
+        n.effectFormat = "Piercing Beam: Dual Target Hit";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Sword;
         n.gridPos = { 0.0f, -3.0f };
@@ -278,10 +277,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 4;
-        n.title = "ASIRI ISINMA (OVERHEAT)";
-        n.categoryName = "SILAH / GUC";
-        n.description = "Ayni hedefe 1.2 sn kesintisiz vuruldugunda hasar 2 katina cikar ve kirmizi isina donusur.";
-        n.effectFormat = "Kesintisiz Atista +100% Hasar";
+        n.title = "OVERHEAT PROTOCOL";
+        n.categoryName = "WEAPONS / POWER";
+        n.description = "Continuous beam focus on a single target for 1.2s doubles damage output.";
+        n.effectFormat = "+100% Sustained Focus Damage";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Fire;
         n.gridPos = { 0.0f, -4.0f };
@@ -294,10 +293,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 5;
-        n.title = "CEKIRDEK ERIMESI (CORE MELTDOWN)";
-        n.categoryName = "SILAH / GUC";
-        n.description = "Yok edilen asteroit ve dusmanlar kucuk bir termal patlama yaratarak cevreye hasar verir.";
-        n.effectFormat = "Imha Aninda Alan Patlamasi";
+        n.title = "CORE MELTDOWN";
+        n.categoryName = "WEAPONS / POWER";
+        n.description = "Destroyed asteroids and enemies detonate into an explosive thermal shockwave.";
+        n.effectFormat = "AoE Thermal Blast on Kill";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Explosion;
         n.gridPos = { 0.0f, -5.0f };
@@ -312,10 +311,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 6;
-        n.title = "CIFT PLAZMA ISINI";
-        n.categoryName = "SILAH / COKLU ISIN";
-        n.description = "Gemi cevresindeki 2 hedefe eszamanli kilitlenen ikincil lazer ekler.";
-        n.effectFormat = "+1 Ekstra Lazer Isini (Toplam 2)";
+        n.title = "DUAL PLASMA BEAM";
+        n.categoryName = "WEAPONS / MULTI-BEAM";
+        n.description = "Adds a secondary laser emitter locking onto 2 simultaneous targets.";
+        n.effectFormat = "+1 Extra Concurrent Laser (2 Total)";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Crosshair;
         n.gridPos = { 1.1f, -1.6f };
@@ -328,10 +327,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 7;
-        n.title = "UCLU PLAZMA ISINI";
-        n.categoryName = "SILAH / COKLU ISIN";
-        n.description = "Ayni anda 3 ayri hedefe saldiri baslatabilen cok kanalli optik modulu.";
-        n.effectFormat = "+1 Ekstra Lazer Isini (Toplam 3)";
+        n.title = "TRI-PLASMA BEAM";
+        n.categoryName = "WEAPONS / MULTI-BEAM";
+        n.description = "Triple optical channels allowing simultaneous engagement of 3 targets.";
+        n.effectFormat = "+1 Extra Concurrent Laser (3 Total)";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Crosshair;
         n.gridPos = { 1.1f, -2.6f };
@@ -344,10 +343,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 8;
-        n.title = "ZINCIRLEME LAZER ARKI (CHAIN ARC)";
-        n.categoryName = "SILAH / COKLU ISIN";
-        n.description = "Vurulan bir hedeften en yakindaki ikinci kayaya veya dusmana elektrikli lazer seker.";
-        n.effectFormat = "Sekmeli Lazer Elektrik Arki";
+        n.title = "CHAIN ARC DISCHARGE";
+        n.categoryName = "WEAPONS / MULTI-BEAM";
+        n.description = "Laser arcs from primary target to nearby enemies or asteroids as lightning.";
+        n.effectFormat = "Arcing Electrical Laser Discharge";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Lightning;
         n.gridPos = { 1.1f, -3.6f };
@@ -360,10 +359,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 9;
-        n.title = "PRIZMATIK BOLUNME (PRISMATIC SPLIT)";
-        n.categoryName = "SILAH / COKLU ISIN";
-        n.description = "Buyuk asteroit kirildiginda lazer kisa sureligine ikiye ayrilarak etrafa yayilir.";
-        n.effectFormat = "Kaya Kirilinca Cift Lazer Salinimi";
+        n.title = "PRISMATIC SPLIT";
+        n.categoryName = "WEAPONS / MULTI-BEAM";
+        n.description = "Shattering large asteroids splits the laser beam into twin rays for a short duration.";
+        n.effectFormat = "Twin Laser Split on Asteroid Kill";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Crosshair;
         n.gridPos = { 1.1f, -4.6f };
@@ -374,14 +373,14 @@ void UpgradeTree::SetupNodes()
         m_nodes.push_back(n);
     }
 
-    // Sub-branch 3: CRIT & KRISTAL ODAK
+    // Sub-branch 3: CRIT & CRYSTAL FOCUS
     {
         UpgradeNode n;
         n.id = 10;
-        n.title = "KRITIK ODAK I";
-        n.categoryName = "SILAH / KRITIK";
-        n.description = "Lazer darbelerinde kritik hasar vurma olasiligi kazandirir.";
-        n.effectFormat = "+15% Kritik Sansi";
+        n.title = "CRITICAL FOCUS I";
+        n.categoryName = "WEAPONS / CRITICAL";
+        n.description = "Tunes laser frequency to trigger high-yield critical strikes.";
+        n.effectFormat = "+15% Critical Chance";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Sword;
         n.gridPos = { -1.1f, -1.6f };
@@ -394,10 +393,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 11;
-        n.title = "KRITIK HASAR CARPANI II";
-        n.categoryName = "SILAH / KRITIK";
-        n.description = "Kritik vuruslarin hasarini normalin 3 katina cikarir.";
-        n.effectFormat = "+100% Kritik Hasar Carpani";
+        n.title = "CRITICAL MULTIPLIER II";
+        n.categoryName = "WEAPONS / CRITICAL";
+        n.description = "Amplifies critical strike damage to triple base intensity.";
+        n.effectFormat = "+100% Critical Damage Multiplier";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Sword;
         n.gridPos = { -1.1f, -2.6f };
@@ -410,10 +409,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 12;
-        n.title = "KRISTAL ZAYIF NOKTA TESPITI";
-        n.categoryName = "SILAH / KRITIK";
-        n.description = "Asteroitlerde parildayan zayif noktalar olusur; oraya vuruldugunda dev kritik hasar patlar.";
-        n.effectFormat = "Zayif Noktada %220 Kritik Patlamasi";
+        n.title = "WEAKPOINT RESONATOR";
+        n.categoryName = "WEAPONS / CRITICAL";
+        n.description = "Illuminates glowing weakpoints on asteroids for massive critical bursts.";
+        n.effectFormat = "220% Critical Burst on Weakpoints";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Crystal;
         n.gridPos = { -1.1f, -3.6f };
@@ -428,10 +427,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 13;
-        n.title = "KADIM TEKILLIK LAZERI";
-        n.categoryName = "KADIM TEKNOLOJI";
-        n.description = "Karanlik madde ile guclendirilmis, kalkan ve zırh tanimayan kadim lazer.";
-        n.effectFormat = "+80 Lazer Hasari & Delici Isin";
+        n.title = "ANCIENT SINGULARITY BEAM";
+        n.categoryName = "LOST TECH";
+        n.description = "Dark matter augmented alien beam that ignores armor and shielding.";
+        n.effectFormat = "+80 Laser Damage & Pierce";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Lock;
         n.gridPos = { -1.1f, -4.8f };
@@ -449,9 +448,9 @@ void UpgradeTree::SetupNodes()
         UpgradeNode n;
         n.id = 99;
         n.title = "DEATH STAR PROTOCOL";
-        n.categoryName = "CAPSTONE / NIHAI";
-        n.description = "Tum lazerler devasa plazma sutununa donusur. Delici isin, asiri isinma ve +100 hasar birlestirilir.";
-        n.effectFormat = "+100 Lazer Hasari & Sinirsiz Delici Kırıcı";
+        n.categoryName = "CAPSTONE / ULTIMATE";
+        n.description = "Transmutes lasers into a cataclysmic orbital plasma beam with infinite penetration.";
+        n.effectFormat = "+100 Laser Damage & Infinite Pierce";
         n.branch = NodeBranch::North_Weapon;
         n.icon = NodeIconType::Star;
         n.gridPos = { 0.0f, -6.1f };
@@ -470,10 +469,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 14;
-        n.title = "CEVHER RADARI I";
-        n.categoryName = "MADENCILIK / SENSOR";
-        n.description = "Cevredeki asteroitlerin maden yogunlugunu ve Reishi verimini artirir.";
-        n.effectFormat = "+25% Reishi Kazanimi";
+        n.title = "MINERAL RADAR I";
+        n.categoryName = "MINING / SENSORS";
+        n.description = "Boosts mineral resonance scanning to increase Reishi crystal yield.";
+        n.effectFormat = "+25% Reishi Crystal Yield";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Scanner;
         n.gridPos = { 1.0f, 0.0f };
@@ -486,10 +485,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 15;
-        n.title = "CEVHER GOZU (ORE VISION)";
-        n.categoryName = "MADENCILIK / SENSOR";
-        n.description = "Asteroitlerin icindeki maden turu (Reishi, Vida, Disli, CPU) kirilmadan parildayarak gorunur.";
-        n.effectFormat = "Kayalar Kirilmadan Maden Gosterimi";
+        n.title = "ORE VISION";
+        n.categoryName = "MINING / SENSORS";
+        n.description = "Reveals internal mineral deposits (Reishi, Screws, Gears, CPU) before mining.";
+        n.effectFormat = "Shows Mineral Content Before Mining";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Scanner;
         n.gridPos = { 1.6f, -1.1f };
@@ -502,10 +501,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 16;
-        n.title = "DERIN TARAMA (DEEP SCAN)";
-        n.categoryName = "MADENCILIK / SENSOR";
-        n.description = "Nadir element tasiyan asteroitlerin etrafinda ozel parilti aurası olusur.";
-        n.effectFormat = "Nadir Cevher Parlama Vurgusu";
+        n.title = "DEEP SPECTRAL SCAN";
+        n.categoryName = "MINING / SENSORS";
+        n.description = "Generates a shimmering glowing aura around asteroids carrying rare materials.";
+        n.effectFormat = "Rare Ore Glowing Aura";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Radar;
         n.gridPos = { 2.6f, -1.1f };
@@ -518,10 +517,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 17;
-        n.title = "HAZINE SINYALI RADARI";
-        n.categoryName = "MADENCILIK / SENSOR";
-        n.description = "HUD uzerinde altin maden ve anomali anahtar sinyalleri tespit edilip yon gosterilir.";
-        n.effectFormat = "Anomali & Altin Maden Radar Uyarisı";
+        n.title = "TREASURE SIGNAL RADAR";
+        n.categoryName = "MINING / SENSORS";
+        n.description = "HUD alerts indicate directional sonar vector towards Ancient Keys and rich veins.";
+        n.effectFormat = "Anomaly & Key Asteroid Sonar";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Radar;
         n.gridPos = { 3.6f, -1.1f };
@@ -534,10 +533,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 18;
-        n.title = "JACKPOT DAMARI (JACKPOT VEIN)";
-        n.categoryName = "MADENCILIK / SENSOR";
-        n.description = "Nadir kayalar kirildiginda %20 sansla devasa 5x kaynak patlamasi (Jackpot) firlatir.";
-        n.effectFormat = "%20 Sansla 5x Ganimet Patlamasi";
+        n.title = "JACKPOT VEIN";
+        n.categoryName = "MINING / SENSORS";
+        n.description = "Mining rare asteroids has a 20% chance to trigger a massive 5x loot explosion.";
+        n.effectFormat = "20% Chance for 5x Mega Jackpot";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Explosion;
         n.gridPos = { 4.6f, -1.1f };
@@ -552,10 +551,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 19;
-        n.title = "MANYETIK CEKIM I";
-        n.categoryName = "MADENCILIK / CEKIM";
-        n.description = "Kristal ve materyalleri kendine ceken manyetik vakum alani kurar.";
-        n.effectFormat = "+60 Birim Cekim Yaricapi";
+        n.title = "MAGNETIC TETHER I";
+        n.categoryName = "MINING / ATTRACTION";
+        n.description = "Generates a magnetic vacuum field to attract crystals and materials.";
+        n.effectFormat = "+60 Unit Vacuum Pickup Radius";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Magnet;
         n.gridPos = { 2.0f, 0.0f };
@@ -568,10 +567,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 20;
-        n.title = "HIPER VAKUM II";
-        n.categoryName = "MADENCILIK / CEKIM";
-        n.description = "Gemi cevresindeki genis alandaki tum parcalari yuksek hizla iceri ceker.";
-        n.effectFormat = "+100 Birim Ekstra Cekim Alani";
+        n.title = "HYPER VACUUM II";
+        n.categoryName = "MINING / ATTRACTION";
+        n.description = "High-potency vortex pulling floating debris rapidly into the ship.";
+        n.effectFormat = "+100 Unit Extra Vacuum Range";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Magnet;
         n.gridPos = { 3.0f, 0.0f };
@@ -584,10 +583,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 21;
-        n.title = "CEVHER YORUNGESI (RESOURCE ORBIT)";
-        n.categoryName = "MADENCILIK / CEKIM";
-        n.description = "Toplanan madenler gemi cevresinde suzulerek ekstra %35 verimle emilir.";
-        n.effectFormat = "Donen Maden Halkasi & +35% Verim";
+        n.title = "RESOURCE ORBIT";
+        n.categoryName = "MINING / ATTRACTION";
+        n.description = "Collected minerals swirl around the ship and absorb with +35% bonus yield.";
+        n.effectFormat = "Orbiting Mineral Ring & +35% Yield";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Crystal;
         n.gridPos = { 4.0f, 0.0f };
@@ -600,10 +599,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 22;
-        n.title = "ANLIK CEKIM (INSTANT SIPHON)";
-        n.categoryName = "MADENCILIK / CEKIM";
-        n.description = "Yakin cevredeki tum madenler havada beklemeden dogrudan gemi envanterine isinlanir.";
-        n.effectFormat = "Madenler Aninda Teleport Olur";
+        n.title = "INSTANT QUANTUM SIPHON";
+        n.categoryName = "MINING / ATTRACTION";
+        n.description = "Floating minerals within range instantly teleport into ship storage.";
+        n.effectFormat = "Instant Mineral Cargo Teleport";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Lightning;
         n.gridPos = { 5.0f, 0.0f };
@@ -618,10 +617,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 23;
-        n.title = "ZINCIRLEME KIRILMA (CHAIN FRACTURE)";
-        n.categoryName = "MADENCILIK / KAZANIM";
-        n.description = "Buyuk bir asteroit kirildiginda cikan sok dalgasi cevredeki kucuk kayalari da catlatir.";
-        n.effectFormat = "Buyuk Kaya Kirilinca Yandakileri Catlatir";
+        n.title = "CHAIN FRACTURE";
+        n.categoryName = "MINING / EXTRACTION";
+        n.description = "Shattering large asteroids creates a kinetic shockwave fracturing nearby rocks.";
+        n.effectFormat = "Kinetic Blast Fractures Nearby Rocks";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Explosion;
         n.gridPos = { 1.6f, 1.1f };
@@ -634,10 +633,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 24;
-        n.title = "VIDA VE CELIK AYRISTIRICI";
-        n.categoryName = "MADENCILIK / KAZANIM";
-        n.description = "Kayalardan ve dusmanlardan ekstra Vida (vida.png) dusme sansini yukseltir.";
-        n.effectFormat = "+50% Vida Dusme Sansi";
+        n.title = "TITANIUM SCREW EXTRACTOR";
+        n.categoryName = "MINING / EXTRACTION";
+        n.description = "Increases drop chance of Screws from asteroids and enemy units.";
+        n.effectFormat = "+50% Screw Drop Rate";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Repair;
         n.gridPos = { 2.6f, 1.1f };
@@ -650,10 +649,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 25;
-        n.title = "DISLI VE MEKANIZMA KAZANIMI";
-        n.categoryName = "MADENCILIK / KAZANIM";
-        n.description = "Elit asteroit ve dusmanlardan Disli (disli.png) dusme sansini artirir.";
-        n.effectFormat = "+40% Disli Dusme Sansi";
+        n.title = "ALLOY GEAR HARVESTER";
+        n.categoryName = "MINING / EXTRACTION";
+        n.description = "Increases drop chance of Gears from elite asteroids and enemies.";
+        n.effectFormat = "+40% Gear Drop Rate";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Crystal;
         n.gridPos = { 3.6f, 1.1f };
@@ -666,10 +665,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 26;
-        n.title = "KUANTUM ISLEMCI (CPU) AYIKLAYICI";
-        n.categoryName = "MADENCILIK / KAZANIM";
-        n.description = "Sektor Boss'larindan ve elit hedeflerden CPU (cpu.png) dusme oranini artirir.";
-        n.effectFormat = "+35% CPU Dusme Sansi";
+        n.title = "QUANTUM CPU SIFTER";
+        n.categoryName = "MINING / EXTRACTION";
+        n.description = "Increases drop chance of Quantum CPUs from bosses and elite targets.";
+        n.effectFormat = "+35% CPU Drop Rate";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Crystal;
         n.gridPos = { 4.6f, 1.1f };
@@ -684,10 +683,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 27;
-        n.title = "KADIM ALTIN DAMAR CEKIRDEGI";
-        n.categoryName = "KADIM TEKNOLOJI";
-        n.description = "Madencilik verimini devasa olcude katlayan kadim maden transmütasyon reaktoru.";
-        n.effectFormat = "+80% Tum Kaynaklara Bonus";
+        n.title = "ANCIENT TRANSMUTATION CORE";
+        n.categoryName = "LOST TECH";
+        n.description = "Alien transmutation matrix massively multiplying all expedition resources.";
+        n.effectFormat = "+80% Bonus to All Resources";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Lock;
         n.gridPos = { 4.8f, 2.3f };
@@ -705,9 +704,9 @@ void UpgradeTree::SetupNodes()
         UpgradeNode n;
         n.id = 98;
         n.title = "MIDAS PROTOCOL";
-        n.categoryName = "CAPSTONE / NIHAI";
-        n.description = "Tum kaynak kazanimi 3 katina cikar. Asteroitlerin yarisi aninda dev Jackpot patlamasina donusur.";
-        n.effectFormat = "+250% Kaynak Verimi & Surekli Jackpot";
+        n.categoryName = "CAPSTONE / ULTIMATE";
+        n.description = "Triples all resource extraction and triggers continuous mega Jackpot explosions.";
+        n.effectFormat = "+250% Resource Yield & Constant Jackpots";
         n.branch = NodeBranch::East_Sensors;
         n.icon = NodeIconType::Star;
         n.gridPos = { 6.1f, 0.0f };
@@ -726,10 +725,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 28;
-        n.title = "ITICI AYARI I";
-        n.categoryName = "MOTOR / HIZ";
-        n.description = "Temel itis gucunu ve gemi manevra kabiliyetini yukseltir.";
-        n.effectFormat = "+30 Birim Hiz";
+        n.title = "THRUSTER TUNING I";
+        n.categoryName = "ENGINE / SPEED";
+        n.description = "Increases primary thruster output and ship maneuvering response.";
+        n.effectFormat = "+30 Unit Flight Speed";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Thruster;
         n.gridPos = { 0.0f, 1.0f };
@@ -742,10 +741,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 29;
-        n.title = "AFTERBURNER (ITIS IZI)";
-        n.categoryName = "MOTOR / HIZ";
-        n.description = "Gemi arkasinda parlayan plazma itis izi birakir ve ekstra hiz kazandirir.";
-        n.effectFormat = "+25 Hiz & Plazma Itis Izi";
+        n.title = "AFTERBURNER TRAIL";
+        n.categoryName = "ENGINE / SPEED";
+        n.description = "Leaves a glowing plasma thrust trail and boosts cruise speed.";
+        n.effectFormat = "+25 Speed & Plasma Trail";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Chevrons;
         n.gridPos = { 0.0f, 2.0f };
@@ -758,10 +757,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 30;
-        n.title = "MOMENTUM SURUCUSU";
-        n.categoryName = "MOTOR / HIZ";
-        n.description = "3 saniye boyunca duz hatta ilerlendiginde gemi %25 ekstra seyir hizi kazanir.";
-        n.effectFormat = "Seyirde +25% Momentum Hizi";
+        n.title = "MOMENTUM CRUISE";
+        n.categoryName = "ENGINE / SPEED";
+        n.description = "Flying in a straight trajectory for 3 seconds grants +25% momentum speed.";
+        n.effectFormat = "+25% Momentum Speed on Cruise";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Chevrons;
         n.gridPos = { 0.0f, 3.0f };
@@ -774,10 +773,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 31;
-        n.title = "SAPAN HIZLANMASI (SLINGSHOT)";
-        n.categoryName = "MOTOR / HIZ";
-        n.description = "Asteroitlerin yakinindan gecerken yercekimi sapani etkisiyle anlik ivme patlamasi saglar.";
-        n.effectFormat = "Asteroit Yanindan Gecerken Hiz Patlamasi";
+        n.title = "GRAVITY SLINGSHOT";
+        n.categoryName = "ENGINE / SPEED";
+        n.description = "Skimming close past asteroids triggers an instantaneous kinetic slingshot boost.";
+        n.effectFormat = "Slingshot Velocity Boost Near Rocks";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Thruster;
         n.gridPos = { 0.0f, 4.0f };
@@ -792,10 +791,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 32;
-        n.title = "FAZ MANEVRASI";
-        n.categoryName = "MOTOR / DASH";
-        n.description = "Dash bekleme suresini kisaltarak daha sik kacinma manevrasi saglar.";
-        n.effectFormat = "-20% Dash Bekleme Suresi";
+        n.title = "PHASE MANEUVER";
+        n.categoryName = "ENGINE / DASH";
+        n.description = "Reduces Phase Dash cooldown for rapid evasive repositioning.";
+        n.effectFormat = "-20% Phase Dash Cooldown";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Chevrons;
         n.gridPos = { -1.1f, 1.6f };
@@ -808,10 +807,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 33;
-        n.title = "HAYALET ATILMA (GHOST DASH)";
-        n.categoryName = "MOTOR / DASH";
-        n.description = "Dash esnasinda gemi tamamen saydamlasir ve dusman mermilerinin icinden hasarsiz gecer.";
-        n.effectFormat = "Mermilerin Icinden Hasarsiz Gecis";
+        n.title = "GHOST DASH";
+        n.categoryName = "ENGINE / DASH";
+        n.description = "Ship becomes completely intangible during dash, phasing through bullets unharmed.";
+        n.effectFormat = "Invulnerable Phasing Through Bullets";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Thruster;
         n.gridPos = { -1.1f, 2.6f };
@@ -824,10 +823,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 34;
-        n.title = "KINETIK CARPMA (IMPACT DASH)";
-        n.categoryName = "MOTOR / DASH";
-        n.description = "Dash sirasinda temas edilen dusmanlara devasa kinetik ezme hasari (120 DMG) verir.";
-        n.effectFormat = "Carpmada 120 Kinetik Hasar";
+        n.title = "IMPACT DASH";
+        n.categoryName = "ENGINE / DASH";
+        n.description = "Ramming enemies while dashing delivers a massive kinetic strike (120 DMG).";
+        n.effectFormat = "120 Kinetic Damage on Dash Contact";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Explosion;
         n.gridPos = { -1.1f, 3.6f };
@@ -840,10 +839,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 35;
-        n.title = "MADENCI ATILMASI (MINING DASH)";
-        n.categoryName = "MOTOR / DASH";
-        n.description = "Dash atildiginda temas edilen tum kucuk ve orta asteroitler tek vurusla aninda parcalanir.";
-        n.effectFormat = "Temas Edilen Asteroitleri Aninda Kirar";
+        n.title = "MINING DASH";
+        n.categoryName = "ENGINE / DASH";
+        n.description = "Dashing into small and medium asteroids shatters them instantly on contact.";
+        n.effectFormat = "Instantly Shatters Asteroids on Contact";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Repair;
         n.gridPos = { -1.1f, 4.6f };
@@ -858,10 +857,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 36;
-        n.title = "GENISLETILMIS YAKIT DEPOSU";
-        n.categoryName = "MOTOR / YAKIT";
-        n.description = "Maksimum sefer enerjisini artirarak uzayda kalis suresini uzatir.";
-        n.effectFormat = "+40 Sefer Enerjisi";
+        n.title = "EXPANDED FUEL CELL";
+        n.categoryName = "ENGINE / ENERGY";
+        n.description = "Expands maximum voyage energy storage for longer deep-space expeditions.";
+        n.effectFormat = "+40 Max Voyage Energy";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Battery;
         n.gridPos = { 1.1f, 1.6f };
@@ -874,10 +873,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 37;
-        n.title = "REAKTOR VERIMLILIGI";
-        n.categoryName = "MOTOR / YAKIT";
-        n.description = "Enerji tuketim hizini (Drain Rate) %25 oraninda dusurerek yakit tasarrufu saglar.";
-        n.effectFormat = "-25% Yakit Tukenis Hizi";
+        n.title = "REACTOR EFFICIENCY";
+        n.categoryName = "ENGINE / ENERGY";
+        n.description = "Reduces voyage energy drain rate by 25% to conserve fuel.";
+        n.effectFormat = "-25% Energy Drain Rate";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Gauge;
         n.gridPos = { 1.1f, 2.6f };
@@ -890,17 +889,17 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 38;
-        n.title = "SIFIR NOKTASI REAKTORU";
-        n.categoryName = "MOTOR / YAKIT";
-        n.description = "Asteroit kirmak ve dusman yok etmek gemiye aninda yakit doldurur.";
-        n.effectFormat = "Maden & Kill Basina +4 Yakit Yenileme";
+        n.title = "SOLAR REGENERATOR";
+        n.categoryName = "ENGINE / ENERGY";
+        n.description = "Shattering asteroids and destroying enemy ships restores voyage energy.";
+        n.effectFormat = "+4 Fuel Restored on Kill & Mine";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Battery;
         n.gridPos = { 1.1f, 3.6f };
         n.maxLevel = 1;
         n.levelCosts = { { 190, 22, 7, 2, 0 } };
         n.levelValues = { 4.0f };
-        n.prerequisiteIds = { 37 }; // Prereq corrected to 37 (Reactor Efficiency)!
+        n.prerequisiteIds = { 37 };
         m_nodes.push_back(n);
     }
 
@@ -908,10 +907,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 39;
-        n.title = "KADIM FAZ REAKTORU";
-        n.categoryName = "KADIM TEKNOLOJI";
-        n.description = "Dash sonrasi 3 saniye boyunca sinirsiz enerji saglayan kuantum reaktoru.";
-        n.effectFormat = "Dash Sonrasi 3s 0 Yakit Tuketimi & +30% Hiz";
+        n.title = "ANCIENT PHASE REACTOR";
+        n.categoryName = "LOST TECH";
+        n.description = "Quantum reactor granting 3 seconds of zero fuel drain and speed surge after each dash.";
+        n.effectFormat = "3s 0 Fuel Drain & +30% Speed on Dash";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Lock;
         n.gridPos = { 1.1f, 4.8f };
@@ -928,10 +927,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 97;
-        n.title = "PERPETUAL ENGINE";
-        n.categoryName = "CAPSTONE / NIHAI";
-        n.description = "Yakit tuketimi yariya iner. Her madencilik ve dusman imhasi yuksek yakit geri dondurur.";
-        n.effectFormat = "-50% Tuketim & Sinirsiz Sefer Enerjisi";
+        n.title = "PERPETUAL ENGINE PROTOCOL";
+        n.categoryName = "CAPSTONE / ULTIMATE";
+        n.description = "Halves fuel consumption while every kill and mined rock recharges massive energy.";
+        n.effectFormat = "-50% Drain & Near-Infinite Voyage Energy";
         n.branch = NodeBranch::South_Engine;
         n.icon = NodeIconType::Star;
         n.gridPos = { 0.0f, 6.1f };
@@ -950,10 +949,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 40;
-        n.title = "GUCENDIRILMIS GOVDE I";
-        n.categoryName = "SAVUNMA / GOVDE";
-        n.description = "Gemi zırhını guclendirerek fazladan dayanıklılık kalbi ekler.";
-        n.effectFormat = "+1 Can Kalbi";
+        n.title = "REINFORCED HULL I";
+        n.categoryName = "DEFENSE / HULL";
+        n.description = "Reinforces vessel armor plating to add extra hull integrity hearts.";
+        n.effectFormat = "+1 Max Hull Heart";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Heart;
         n.gridPos = { -1.0f, 0.0f };
@@ -966,10 +965,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 41;
-        n.title = "PLAZMA KALKAN BALONU";
-        n.categoryName = "SAVUNMA / KALKAN";
-        n.description = "Her 10 saniyede bir 1 hasari tamamen engelleyen plazma kalkani uretir.";
-        n.effectFormat = "1 Hasar Engelleyen Koruma Kalkani";
+        n.title = "PLASMA FORCE SHIELD";
+        n.categoryName = "DEFENSE / SHIELD";
+        n.description = "Deploys a plasma shield bubble absorbing 1 incoming hit every 10 seconds.";
+        n.effectFormat = "Absorbs 1 Hit (10s Recharge)";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Shield;
         n.gridPos = { -1.6f, -1.1f };
@@ -982,10 +981,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 42;
-        n.title = "YANSITICI KALKAN (REFLECTIVE)";
-        n.categoryName = "SAVUNMA / KALKAN";
-        n.description = "Kalkanin engelledigi dusman mermileri saldirganlara dogru geri firlar.";
-        n.effectFormat = "Engellenen Mermiler Dusmana Geri Doner";
+        n.title = "DEFLECTOR MATRIX";
+        n.categoryName = "DEFENSE / SHIELD";
+        n.description = "Shield-deflected projectiles reflect back towards attackers as kinetic bolts.";
+        n.effectFormat = "Reflects Blocked Bullets at Enemies";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Barrier;
         n.gridPos = { -2.6f, -1.1f };
@@ -1000,10 +999,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 43;
-        n.title = "OTONOM TARET CEKIRDEGI";
-        n.categoryName = "SAVUNMA / TARET";
-        n.description = "Haritada sabit savunma istasyonu kuran ve alana girince otomatik ates eden 1 taret.";
-        n.effectFormat = "+1 Harita Konumlu Savunma Tareti";
+        n.title = "AUTONOMOUS TURRET CORE";
+        n.categoryName = "DEFENSE / TURRET";
+        n.description = "Deploys an automated tactical defense turret engaging hostiles and asteroids in range.";
+        n.effectFormat = "+1 Defense Station Turret";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Turret;
         n.gridPos = { -2.0f, 0.0f };
@@ -1016,10 +1015,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 44;
-        n.title = "KINETIK TARET PLATFORMU";
-        n.categoryName = "SAVUNMA / TARET";
-        n.description = "Taretin atis araligini kisaltir ve hasarini yukseltir.";
-        n.effectFormat = "+15 Taret Hasari & Seri Atis";
+        n.title = "KINETIC TURRET DRIVE";
+        n.categoryName = "DEFENSE / TURRET";
+        n.description = "Increases turret firing rate and enhances ballistic projectile damage.";
+        n.effectFormat = "+15 Turret Damage & Rapid Fire";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Turret;
         n.gridPos = { -3.0f, 0.0f };
@@ -1032,10 +1031,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 45;
-        n.title = "DELICI SILAH TARETI (GUN SPEC)";
-        n.categoryName = "SAVUNMA / TARET SPEC";
-        n.description = "Taret yuksek hizli delici makineli tufege donusur; dusmanlari bicer.";
-        n.effectFormat = "Delici Muharebe Tareti & +30 Hasar";
+        n.title = "RAILGUN TURRET (GUN SPEC)";
+        n.categoryName = "DEFENSE / TURRET SPEC";
+        n.description = "Upgrades turret to high-velocity armor-piercing kinetic railgun.";
+        n.effectFormat = "Armor-Piercing Railgun & +30 Damage";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Sword;
         n.gridPos = { -3.6f, -1.1f };
@@ -1048,10 +1047,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 46;
-        n.title = "CEVHER MADENCI TARETI (MINING SPEC)";
-        n.categoryName = "SAVUNMA / TARET SPEC";
-        n.description = "Taret oncelikli olarak asteroitleri hedefler ve 2 kat maden hasari ile zengin cevher tarar.";
-        n.effectFormat = "Otomatik Madencilik & 2x Kaya Hasari";
+        n.title = "MINING LASER TURRET (MINING SPEC)";
+        n.categoryName = "DEFENSE / TURRET SPEC";
+        n.description = "Turret prioritizes asteroids dealing 2x mining damage to harvest rich ore.";
+        n.effectFormat = "Automated Mining & 2x Asteroid Damage";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Repair;
         n.gridPos = { -4.0f, 0.0f };
@@ -1064,10 +1063,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 47;
-        n.title = "PLAZMA MORTAR TARETI (PLASMA SPEC)";
-        n.categoryName = "SAVUNMA / TARET SPEC";
-        n.description = "Taret patlayici plazma toplari atarak genis alandaki hedefleri sok dalgasiyla yok eder.";
-        n.effectFormat = "Genis AoE Plazma Havan Atisi";
+        n.title = "PLASMA MORTAR TURRET (PLASMA SPEC)";
+        n.categoryName = "DEFENSE / TURRET SPEC";
+        n.description = "Turret fires explosive plasma mortar shells causing wide AoE blast waves.";
+        n.effectFormat = "Wide AoE Plasma Mortar Barrage";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Explosion;
         n.gridPos = { -3.6f, 1.1f };
@@ -1080,17 +1079,17 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 48;
-        n.title = "ORBITAL SAVUNMA AGI (3 TARET)";
-        n.categoryName = "SAVUNMA / TARET";
-        n.description = "Haritada 3 ayri stratejik noktaya savunma istasyonu kurar ve tum sektoru kontrol altina alir.";
-        n.effectFormat = "Toplam 3 Harita Savunma Istasyonu";
+        n.title = "ORBITAL DEFENSE GRID (3 TURRETS)";
+        n.categoryName = "DEFENSE / TURRET";
+        n.description = "Establishes 3 coordinated tactical defense stations controlling the sector.";
+        n.effectFormat = "Total 3 Map Defense Turrets";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Turret;
         n.gridPos = { -5.1f, 0.0f };
         n.maxLevel = 1;
         n.levelCosts = { { 300, 35, 12, 3, 1 } };
         n.levelValues = { 3.0f };
-        n.prerequisiteIds = { 45, 46, 47 }; // Any 3-way specialization enables orbital network!
+        n.prerequisiteIds = { 45, 46, 47 };
         m_nodes.push_back(n);
     }
 
@@ -1098,10 +1097,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 49;
-        n.title = "SOK DALGASI JENERATORU";
-        n.categoryName = "SAVUNMA / EMP";
-        n.description = "Periyodik olarak tum dusman mermilerini silen ve hasar veren sok dalgasi yayar.";
-        n.effectFormat = "9 Sn'de Bir Mermi Silen EMP Dalgasi";
+        n.title = "EMP PULSE GENERATOR";
+        n.categoryName = "DEFENSE / EMP";
+        n.description = "Periodically emits an electromagnetic pulse clearing bullets and damaging foes.";
+        n.effectFormat = "Bullet-Clearing EMP Wave Every 9s";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Shockwave;
         n.gridPos = { -1.6f, 1.1f };
@@ -1116,10 +1115,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 50;
-        n.title = "KADIM MUHAFIZ YAPAY ZEKASI";
-        n.categoryName = "KADIM TEKNOLOJI";
-        n.description = "Taretlerin kritik noktalara isabet oranini artirir ve menzillerini genisletir.";
-        n.effectFormat = "+100 Taret Menzili & +40 Hasar";
+        n.title = "ANCIENT SENTINEL AI";
+        n.categoryName = "LOST TECH";
+        n.description = "Alien targeting cortex granting extreme range and lethal precision to all turrets.";
+        n.effectFormat = "+100 Turret Range & +40 Damage";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Lock;
         n.gridPos = { -4.8f, 2.3f };
@@ -1136,10 +1135,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 96;
-        n.title = "ORBITAL FORTRESS";
-        n.categoryName = "CAPSTONE / NIHAI";
-        n.description = "3 Taret + Yansitici Kalkan + Surekli Sok Dalgasi mukemmel sinerjiye girer.";
-        n.effectFormat = "Gecilmez Kale: 3 Taret, Ekstra Kalkan & Surekli EMP";
+        n.title = "ORBITAL FORTRESS CITADEL";
+        n.categoryName = "CAPSTONE / ULTIMATE";
+        n.description = "3 Heavy Turrets + Reflector Barrier + Continuous EMP form an impregnable fortress.";
+        n.effectFormat = "Citadel: 3 Turrets, Shield & Constant EMP";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Star;
         n.gridPos = { -6.1f, 0.0f };
@@ -1157,10 +1156,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 51;
-        n.title = "LAZER KAZICI (LASER EXCAVATOR)";
-        n.categoryName = "HIBRIT / SILAH+MADEN";
-        n.description = "Lazer hasari asteroitlere karsi +100% ekstra gucle calisir.";
-        n.effectFormat = "Asteroitlere +100% Lazer Maden Hasari";
+        n.title = "LASER EXCAVATOR";
+        n.categoryName = "HYBRID / WEAPON+MINING";
+        n.description = "Laser beam deals +100% bonus extraction damage against asteroid minerals.";
+        n.effectFormat = "+100% Laser Damage to Asteroids";
         n.branch = NodeBranch::Hybrid;
         n.icon = NodeIconType::Hybrid;
         n.gridPos = { 2.7f, -2.7f };
@@ -1168,16 +1167,16 @@ void UpgradeTree::SetupNodes()
         n.isHybrid = true;
         n.levelCosts = { { 150, 18, 5, 1, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 1, 14 }; // Weapon 1 + Mining 14
+        n.prerequisiteIds = { 1, 14 };
         m_nodes.push_back(n);
     }
     {
         UpgradeNode n;
         n.id = 52;
-        n.title = "HURDA TOPLAYICI DRON (SALVAGE DRONE)";
-        n.categoryName = "HIBRIT / SAVUNMA+MADEN";
-        n.description = "Taretlerin yok ettigi veya kirdigi tum hedeflerin ganimeti aninda toplanir.";
-        n.effectFormat = "Taretlerin Vurdugu Loot Otomatik Toplanir";
+        n.title = "SALVAGE DRONE";
+        n.categoryName = "HYBRID / DEFENSE+MINING";
+        n.description = "Debris and loot from targets destroyed by turrets are automatically collected.";
+        n.effectFormat = "Turret Kills Auto-Collected";
         n.branch = NodeBranch::Hybrid;
         n.icon = NodeIconType::Hybrid;
         n.gridPos = { 2.7f, 2.7f };
@@ -1185,16 +1184,16 @@ void UpgradeTree::SetupNodes()
         n.isHybrid = true;
         n.levelCosts = { { 150, 18, 5, 1, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 19, 40 }; // Mining 19 + Defense 40
+        n.prerequisiteIds = { 19, 40 };
         m_nodes.push_back(n);
     }
     {
         UpgradeNode n;
         n.id = 53;
-        n.title = "HIZ TOPU (VELOCITY CANNON)";
-        n.categoryName = "HIBRIT / MOTOR+SILAH";
-        n.description = "Gemi hareket hizi arttikca lazerin verdigi hasar dogrudan yukselir.";
-        n.effectFormat = "Hizlandikca Lazer Hasari Artar (+1% her 5px hiz)";
+        n.title = "VELOCITY CANNON";
+        n.categoryName = "HYBRID / ENGINE+WEAPON";
+        n.description = "Higher vessel flight velocity directly amplifies laser beam damage output.";
+        n.effectFormat = "Laser Damage Scales with Speed (+1% per 5px)";
         n.branch = NodeBranch::Hybrid;
         n.icon = NodeIconType::Hybrid;
         n.gridPos = { -2.7f, -2.7f };
@@ -1202,16 +1201,16 @@ void UpgradeTree::SetupNodes()
         n.isHybrid = true;
         n.levelCosts = { { 150, 18, 5, 1, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 1, 28 }; // Weapon 1 + Engine 28 (Corrected!)
+        n.prerequisiteIds = { 1, 28 };
         m_nodes.push_back(n);
     }
     {
         UpgradeNode n;
         n.id = 54;
-        n.title = "MISILLEME MATRISI (RETALIATION MATRIX)";
-        n.categoryName = "HIBRIT / SAVUNMA+SILAH";
-        n.description = "Hasar alindiginda veya kalkan patladiginda 4 sn boyunca +100% atis hizi patlamasi.";
-        n.effectFormat = "Hasar Alinca 4s Lazer Cilginligi (+100% Hiz)";
+        n.title = "RETALIATION MATRIX";
+        n.categoryName = "HYBRID / DEFENSE+WEAPON";
+        n.description = "Taking damage or popping shields triggers a 4s hyper laser frenzy (+100% fire rate).";
+        n.effectFormat = "4s Hyper Laser Frenzy on Hit (+100% Rate)";
         n.branch = NodeBranch::Hybrid;
         n.icon = NodeIconType::Hybrid;
         n.gridPos = { -3.8f, -2.2f };
@@ -1219,16 +1218,16 @@ void UpgradeTree::SetupNodes()
         n.isHybrid = true;
         n.levelCosts = { { 200, 25, 8, 2, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 1, 40 }; // Weapon 1 + Defense 40 (Corrected!)
+        n.prerequisiteIds = { 1, 40 };
         m_nodes.push_back(n);
     }
     {
         UpgradeNode n;
         n.id = 55;
-        n.title = "HIPER CEKIM ALANI (HYPER MAGNET)";
-        n.categoryName = "HIBRIT / MOTOR+MADEN";
-        n.description = "Yuksek hizla ilerlerken manyetik cekim yaricapi %50 oraninda genisler.";
-        n.effectFormat = "Yuksek Hizda +50% Cekim Alani";
+        n.title = "HYPER MAGNET";
+        n.categoryName = "HYBRID / ENGINE+MINING";
+        n.description = "Magnetic vacuum suction radius expands by +50% while cruising at high speed.";
+        n.effectFormat = "+50% Vacuum Radius at High Speed";
         n.branch = NodeBranch::Hybrid;
         n.icon = NodeIconType::Hybrid;
         n.gridPos = { -2.7f, 2.7f };
@@ -1236,7 +1235,7 @@ void UpgradeTree::SetupNodes()
         n.isHybrid = true;
         n.levelCosts = { { 150, 18, 5, 1, 0 } };
         n.levelValues = { 1.0f };
-        n.prerequisiteIds = { 19, 28 }; // Mining 19 + Engine 28 (Corrected!)
+        n.prerequisiteIds = { 19, 28 };
         m_nodes.push_back(n);
     }
 
@@ -1246,10 +1245,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 56;
-        n.title = "[Q] ENERJI DALGASI (EMP NOVA)";
-        n.categoryName = "AKTIF BECERI [Q]";
-        n.description = "Ekrani kaplayan sok dalgasi tum dusman mermilerini siler ve hasar verir.";
-        n.effectFormat = "[Q] Tusu ile Mermi Sici ve EMP Dalgasi";
+        n.title = "[Q] EMP NOVA";
+        n.categoryName = "ACTIVE SKILL [Q]";
+        n.description = "Emits a full-screen electromagnetic shockwave obliterating bullets and damaging targets.";
+        n.effectFormat = "[Q] Key: Full Screen Bullet Clear & EMP Wave";
         n.branch = NodeBranch::Active_Skills;
         n.icon = NodeIconType::SkillEmp;
         n.gridPos = { -4.2f, -3.8f };
@@ -1262,10 +1261,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 57;
-        n.title = "[E] ASIRI YUKLEME (OVERCHARGE)";
-        n.categoryName = "AKTIF BECERI [E]";
-        n.description = "4 saniye boyunca hiper plazma lazer frekansini tetikler.";
-        n.effectFormat = "[E] Tusu ile 4s Mega Lazer Cilginligi";
+        n.title = "[E] OVERCHARGE";
+        n.categoryName = "ACTIVE SKILL [E]";
+        n.description = "Overclocks power conduit into a 4-second hyper laser frenzy.";
+        n.effectFormat = "[E] Key: 4s Mega Laser Overdrive";
         n.branch = NodeBranch::Active_Skills;
         n.icon = NodeIconType::SkillOvercharge;
         n.gridPos = { 4.2f, -3.8f };
@@ -1278,10 +1277,10 @@ void UpgradeTree::SetupNodes()
     {
         UpgradeNode n;
         n.id = 58;
-        n.title = "[SHIFT] FAZ ATILMASI (PHASE DASH)";
-        n.categoryName = "AKTIF BECERI [SHIFT]";
-        n.description = "Gemi aninda ileri atilir ve hasar gormez.";
-        n.effectFormat = "[SHIFT] veya [SPACE] ile Dokunulmaz Dash";
+        n.title = "[SPACE] PHASE DASH";
+        n.categoryName = "ACTIVE SKILL [SPACE]";
+        n.description = "Instantly warps forward granting complete damage invulnerability.";
+        n.effectFormat = "[SPACE] Key: Invulnerable Warp Dash";
         n.branch = NodeBranch::Active_Skills;
         n.icon = NodeIconType::SkillDash;
         n.gridPos = { -4.2f, 3.8f };
@@ -1864,13 +1863,13 @@ void UpgradeTree::DrawZoomControls()
     Sprite_DrawRectBorder(panelX + 96.0f, panelY + 5.0f, 28.0f, 24.0f, 1.0f, { 0.6f, 0.9f, 1.0f, 0.8f });
     DrawTextMatrix(panelX + 106.0f, panelY + 9.0f, "-", 2.2f, { 1.0f, 1.0f, 1.0f, 1.0f });
 
-    // [SIFIRLA] Button
+    // [RESET] Button
     Sprite_DrawRect(panelX + 132.0f, panelY + 5.0f, 120.0f, 24.0f, { 0.18f, 0.14f, 0.24f, 0.90f });
     Sprite_DrawRectBorder(panelX + 132.0f, panelY + 5.0f, 120.0f, 24.0f, 1.0f, { 1.0f, 0.85f, 0.4f, 0.8f });
-    DrawTextMatrix(panelX + 144.0f, panelY + 11.0f, "SIFIRLA [R]", 1.6f, { 1.0f, 0.90f, 0.50f, 1.0f });
+    DrawTextMatrix(panelX + 148.0f, panelY + 11.0f, "RESET [R]", 1.6f, { 1.0f, 0.90f, 0.50f, 1.0f });
 
     // Hint text above
-    DrawTextMatrix(cx - 180.0f, panelY - 18.0f, "MOUSE WHEEL: ZOOM  |  SAG TIK: SURUKLE  |  [R]: SIFIRLA", 1.4f, { 0.65f, 0.75f, 0.85f, 0.75f });
+    DrawTextMatrix(cx - 180.0f, panelY - 18.0f, "MOUSE WHEEL: ZOOM  |  RIGHT DRAG: PAN  |  [R]: RESET", 1.4f, { 0.65f, 0.75f, 0.85f, 0.75f });
 }
 
 void UpgradeTree::DrawGridBackground()
@@ -1890,7 +1889,7 @@ void UpgradeTree::DrawGridBackground()
         Sprite_DrawLine(0.0f, y, (float)SCREEN_WIDTH, y, 1.0f, gridCol);
     }
 
-    // Header Title Box: YÜKSELTMELER (compact & sleek at the top)
+    // Header Title Box: UPGRADES (compact & sleek at the top)
     float titleBoxW = 380.0f;
     float titleBoxH = 38.0f;
     float titleBoxX = (float)SCREEN_WIDTH * 0.5f - titleBoxW * 0.5f;
@@ -1899,7 +1898,7 @@ void UpgradeTree::DrawGridBackground()
     Sprite_DrawRect(titleBoxX, titleBoxY, titleBoxW, titleBoxH, { 0.14f, 0.09f, 0.18f, 0.80f });
     Sprite_DrawRectBorder(titleBoxX, titleBoxY, titleBoxW, titleBoxH, 1.5f, { 0.95f, 0.88f, 0.78f, 0.80f });
 
-    DrawTextMatrix(titleBoxX + 50.0f, titleBoxY + 9.0f, "YUKSELTMELER", 3.4f, { 0.96f, 0.92f, 0.84f, 1.0f });
+    DrawTextMatrix(titleBoxX + 80.0f, titleBoxY + 9.0f, "UPGRADES", 3.4f, { 0.96f, 0.92f, 0.84f, 1.0f });
 }
 
 void UpgradeTree::DrawLeftPanel(const PlayerResources& bank)
@@ -1908,8 +1907,8 @@ void UpgradeTree::DrawLeftPanel(const PlayerResources& bank)
     float panelY = 45.0f;
     float panelW = 280.0f;
 
-    // BANKA Header
-    DrawTextMatrix(panelX, panelY, "BANKA", 4.5f, { 0.35f, 0.90f, 0.95f, 1.0f });
+    // STORAGE Header
+    DrawTextMatrix(panelX, panelY, "STORAGE", 4.5f, { 0.35f, 0.90f, 0.95f, 1.0f });
     Sprite_DrawRect(panelX, panelY + 36.0f, panelW, 2.5f, { 0.35f, 0.90f, 0.95f, 0.6f });
 
     // Resource rows with real texture visuals!
@@ -1933,11 +1932,11 @@ void UpgradeTree::DrawLeftPanel(const PlayerResources& bank)
     }
 
     // ==========================================
-    // GÖREVLER (Quests / Missions)
+    // MISSIONS (Quests / Missions)
     // ==========================================
     float questY = startY + 5 * rowSpacing + 50.0f;
 
-    DrawTextMatrix(panelX, questY, "GOREVLER", 4.0f, { 0.95f, 0.40f, 0.75f, 1.0f });
+    DrawTextMatrix(panelX, questY, "MISSIONS", 4.0f, { 0.95f, 0.40f, 0.75f, 1.0f });
     Sprite_DrawRect(panelX, questY + 32.0f, panelW, 2.5f, { 0.95f, 0.40f, 0.75f, 0.6f });
 
     // Quest Title
@@ -1975,8 +1974,8 @@ void UpgradeTree::DrawRightPanel(int currentStage)
     float panelY = 45.0f;
     float panelW = 250.0f;
 
-    // SEKTÖRLER Header
-    DrawTextMatrix(panelX, panelY, "SEKTORLER", 3.8f, { 1.0f, 0.65f, 0.25f, 1.0f });
+    // SECTORS Header
+    DrawTextMatrix(panelX, panelY, "SECTORS", 3.8f, { 1.0f, 0.65f, 0.25f, 1.0f });
     Sprite_DrawRect(panelX, panelY + 32.0f, panelW, 2.5f, { 1.0f, 0.65f, 0.25f, 0.6f });
 
     // Sector List (5 Stages)
@@ -2046,28 +2045,28 @@ void UpgradeTree::DrawRightPanel(int currentStage)
         // Status Label / Action hint
         if (isCompleted && isCurrent)
         {
-            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ SECILI : ZAFER KAZANILDI ]", 1.5f, { 0.35f, 0.95f, 0.50f, 1.0f });
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ SELECTED : VICTORY ]", 1.5f, { 0.35f, 0.95f, 0.50f, 1.0f });
         }
         else if (isCompleted)
         {
-            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ ZAFER KAZANILDI ]", 1.6f, { 0.35f, 0.95f, 0.50f, 1.0f });
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ VICTORY ]", 1.6f, { 0.35f, 0.95f, 0.50f, 1.0f });
         }
         else if (isCurrent)
         {
-            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ AKTIF HEDEF / SECILI ]", 1.6f, { 1.0f, 0.85f, 0.25f, 1.0f });
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ ACTIVE TARGET / SELECTED ]", 1.5f, { 1.0f, 0.85f, 0.25f, 1.0f });
         }
         else if (isUnlocked)
         {
-            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ TIKLA VE SEC ]", 1.6f, { 0.40f, 0.85f, 1.0f, 1.0f });
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ CLICK TO SELECT ]", 1.6f, { 0.40f, 0.85f, 1.0f, 1.0f });
         }
         else
         {
-            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ KILITLI: 1 ANAHTAR GEREKIR ]", 1.5f, { 0.85f, 0.35f, 0.35f, 0.9f });
+            DrawTextMatrix(panelX + 48.0f, cy + 30.0f, "[ LOCKED: 1 KEY REQUIRED ]", 1.5f, { 0.85f, 0.35f, 0.35f, 0.9f });
         }
     }
 
     // ==========================================
-    // BAŞLAT BUTTON (Launch Button)
+    // LAUNCH BUTTON
     // ==========================================
     float btnX = 1320.0f;
     float btnY = 770.0f;
@@ -2103,7 +2102,7 @@ void UpgradeTree::DrawRightPanel(int currentStage)
         ? DirectX::XMFLOAT4(0.1f, 0.05f, 0.05f, 1.0f)
         : DirectX::XMFLOAT4(1.0f, 0.85f, 0.35f, 1.0f);
 
-    DrawTextMatrix(drawX + 75.0f, drawY + drawH * 0.5f - 10.0f, "SEFERI BASLAT", 2.6f, textCol);
+    DrawTextMatrix(drawX + 70.0f, drawY + drawH * 0.5f - 10.0f, "LAUNCH MISSION", 2.3f, textCol);
 }
 
 void UpgradeTree::DrawBranchLines()
@@ -2327,16 +2326,16 @@ void UpgradeTree::DrawTooltip(const UpgradeNode* node, const PlayerResources& ba
     // Level info / Special tags
     if (node->isCapstone)
     {
-        DrawTextMatrix(cardX + 16.0f, cardY + 68.0f, "[ ⭐ NIHAI PROTOKOL - 1 CAPSTONE LIMITI ]", 1.8f, { 1.0f, 0.85f, 0.25f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, cardY + 68.0f, "[ ⭐ ULTIMATE PROTOCOL - 1 CAPSTONE LIMIT ]", 1.7f, { 1.0f, 0.85f, 0.25f, 1.0f });
     }
     else if (node->isSealed && !node->isSealBroken)
     {
-        DrawTextMatrix(cardX + 16.0f, cardY + 68.0f, "[ 🔒 MUHURLU KADIM TEKNOLOJI ]", 1.8f, { 1.0f, 0.45f, 0.65f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, cardY + 68.0f, "[ 🔒 SEALED ANCIENT TECH ]", 1.8f, { 1.0f, 0.45f, 0.65f, 1.0f });
     }
     else if (!node->isCenterHub)
     {
         char lvlBuf[32];
-        sprintf_s(lvlBuf, "SEVIYE: %d / %d", node->currentLevel, node->maxLevel);
+        sprintf_s(lvlBuf, "LEVEL: %d / %d", node->currentLevel, node->maxLevel);
         DrawTextMatrix(cardX + 16.0f, cardY + 68.0f, lvlBuf, 2.0f, { 1.0f, 0.85f, 0.30f, 1.0f });
     }
 
@@ -2352,34 +2351,34 @@ void UpgradeTree::DrawTooltip(const UpgradeNode* node, const PlayerResources& ba
 
     if (node->isCenterHub)
     {
-        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ ANA MERKEZ - AKTIF ]", 1.9f, { 0.95f, 0.85f, 0.40f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ COMMAND CORE - ACTIVE ]", 1.9f, { 0.95f, 0.85f, 0.40f, 1.0f });
     }
     else if (node->isSealed && !node->isSealBroken)
     {
-        DrawTextMatrix(cardX + 16.0f, bottomY + 8.0f, "MUHRU KIRMAK ICIN:", 1.8f, { 1.0f, 0.55f, 0.70f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, bottomY + 8.0f, "UNSEAL REQUIREMENT:", 1.8f, { 1.0f, 0.55f, 0.70f, 1.0f });
         DrawBankIcon(4, cardX + 28.0f, bottomY + 36.0f, 24.0f);
-        DrawTextMatrix(cardX + 48.0f, bottomY + 28.0f, "1 KADIM ANAHTAR", 1.9f, { 1.0f, 0.85f, 0.30f, 1.0f });
+        DrawTextMatrix(cardX + 48.0f, bottomY + 28.0f, "1 ANCIENT KEY", 1.9f, { 1.0f, 0.85f, 0.30f, 1.0f });
 
         if (bank.key >= node->keySealCost)
         {
-            DrawTextMatrix(cardX + 16.0f, bottomY + 56.0f, "[ TIKLA VE 1 ANAHTAR ILE MUHRU KIR ]", 2.0f, { 0.35f, 1.0f, 0.60f, 1.0f });
+            DrawTextMatrix(cardX + 16.0f, bottomY + 56.0f, "[ CLICK TO UNSEAL WITH 1 KEY ]", 1.9f, { 0.35f, 1.0f, 0.60f, 1.0f });
         }
         else
         {
-            DrawTextMatrix(cardX + 16.0f, bottomY + 56.0f, "[ YETERSIZ ANAHTAR (1 ANAHTAR GEREKIR) ]", 1.8f, { 0.95f, 0.35f, 0.35f, 1.0f });
+            DrawTextMatrix(cardX + 16.0f, bottomY + 56.0f, "[ INSUFFICIENT KEYS (1 KEY REQUIRED) ]", 1.7f, { 0.95f, 0.35f, 0.35f, 1.0f });
         }
     }
     else if (node->isCapstone && m_activeCapstoneId != -1 && m_activeCapstoneId != node->id)
     {
-        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ 🔒 CEKIRDEK HIZALANDI - 1 CAPSTONE LIMITI ]", 1.8f, { 1.0f, 0.40f, 0.35f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ 🔒 CORE ALIGNED - 1 CAPSTONE LIMIT ]", 1.7f, { 1.0f, 0.40f, 0.35f, 1.0f });
     }
     else if (node->IsMaxLevel())
     {
-        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ MAKSIMUM SEVIYEYE ULASILDI ]", 2.0f, { 1.0f, 0.85f, 0.30f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ MAXIMUM LEVEL REACHED ]", 2.0f, { 1.0f, 0.85f, 0.30f, 1.0f });
     }
     else if (!HasPrerequisites(node->id))
     {
-        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ KILITLI - ONCEKI DALLARI ACIN ]", 2.0f, { 0.95f, 0.35f, 0.35f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, bottomY + 14.0f, "[ LOCKED - UNLOCK PREVIOUS NODES ]", 1.9f, { 0.95f, 0.35f, 0.35f, 1.0f });
     }
     else
     {
@@ -2387,7 +2386,7 @@ void UpgradeTree::DrawTooltip(const UpgradeNode* node, const PlayerResources& ba
         const ResourceCost& cost = node->levelCosts[nextLvl];
         bool canAfford = CanUnlockNode(node->id, bank);
 
-        DrawTextMatrix(cardX + 16.0f, bottomY + 8.0f, "GEREKLI KAYNAKLAR:", 1.8f, { 0.95f, 0.85f, 0.70f, 1.0f });
+        DrawTextMatrix(cardX + 16.0f, bottomY + 8.0f, "REQUIRED RESOURCES:", 1.8f, { 0.95f, 0.85f, 0.70f, 1.0f });
 
         float costItemX = cardX + 16.0f;
         float costItemY = bottomY + 28.0f;
@@ -2396,10 +2395,10 @@ void UpgradeTree::DrawTooltip(const UpgradeNode* node, const PlayerResources& ba
         std::vector<CostEntry> requiredItems;
 
         if (cost.reishi > 0) requiredItems.push_back({ 0, cost.reishi, bank.reishi, "Reishi" });
-        if (cost.vida > 0)   requiredItems.push_back({ 1, cost.vida, bank.vida, "Vida" });
-        if (cost.disli > 0)  requiredItems.push_back({ 2, cost.disli, bank.disli, "Disli" });
+        if (cost.vida > 0)   requiredItems.push_back({ 1, cost.vida, bank.vida, "Screw" });
+        if (cost.disli > 0)  requiredItems.push_back({ 2, cost.disli, bank.disli, "Gear" });
         if (cost.cpu > 0)    requiredItems.push_back({ 3, cost.cpu, bank.cpu, "CPU" });
-        if (cost.key > 0)    requiredItems.push_back({ 4, cost.key, bank.key, "Anahtar" });
+        if (cost.key > 0)    requiredItems.push_back({ 4, cost.key, bank.key, "Key" });
 
         for (const auto& item : requiredItems)
         {
@@ -2422,11 +2421,11 @@ void UpgradeTree::DrawTooltip(const UpgradeNode* node, const PlayerResources& ba
 
         if (canAfford)
         {
-            DrawTextMatrix(cardX + 16.0f, bottomY + 54.0f, "[ TIKLA VE YUKSELT ]", 2.1f, { 0.30f, 1.0f, 0.60f, 1.0f });
+            DrawTextMatrix(cardX + 16.0f, bottomY + 54.0f, "[ CLICK TO UPGRADE ]", 2.1f, { 0.30f, 1.0f, 0.60f, 1.0f });
         }
         else
         {
-            DrawTextMatrix(cardX + 16.0f, bottomY + 54.0f, "[ YETERSIZ KAYNAK ]", 2.1f, { 0.95f, 0.35f, 0.35f, 1.0f });
+            DrawTextMatrix(cardX + 16.0f, bottomY + 54.0f, "[ INSUFFICIENT RESOURCES ]", 2.0f, { 0.95f, 0.35f, 0.35f, 1.0f });
         }
     }
 }
@@ -2444,38 +2443,38 @@ void UpgradeTree::DrawBankResourceTooltip(int index)
 
     const ResInfo info[5] = {
         {
-            "REISHI MADEN KRISTALI",
-            "[ TEMEL PARA BIRIMI ]",
-            "Gemi gelistirmelerinde ve altyapi sistemlerinde kullanilan ana enerji cevheri.",
-            "KAYNAK: Tum asteroitlerin kirilmasindan ve dusmanlardan elde edilir.",
+            "REISHI ENERGY CRYSTAL",
+            "[ PRIMARY CURRENCY ]",
+            "Core energy ore used for ship upgrades and system enhancements.",
+            "SOURCE: Extracted from all destroyed asteroids and enemies.",
             { 0.4f, 1.0f, 0.7f, 1.0f }
         },
         {
-            "VIDA VE CIVATA PARCASI",
-            "[ HAFIF HURDA METAL ]",
-            "Mekanik alt sistemleri ve silah donanimlarini guclendiren vida bilesenleri.",
-            "KAYNAK: Dusman dronlarindan ve kucuk asteroitlerden duser.",
+            "TITANIUM SCREW",
+            "[ RARE CRAFTING MATERIAL ]",
+            "Industrial fastener required for structural hull and kinetic upgrades.",
+            "SOURCE: Rare drop from asteroids and space chests.",
             { 0.45f, 0.85f, 0.95f, 1.0f }
         },
         {
-            "DISLI VE MEKANIK GUC BIRIMI",
-            "[ AGIR SANAYI PARCASI ]",
-            "Motor, taret ve agir savunma zirhi yapiminda kullanilan dayanikli celik disli.",
-            "KAYNAK: Elit asteroitlerden ve Sektor Boss zaferlerinden cikar.",
+            "ALLOY GEAR",
+            "[ HIGH-TECH COMPONENT ]",
+            "Precision mechanical gear used in weapon drives and turret assemblies.",
+            "SOURCE: Mined from anomalous asteroids and mechanical units.",
             { 0.95f, 0.65f, 0.25f, 1.0f }
         },
         {
-            "KUANTUM ISLEMCI (CPU)",
-            "[ NADIR MIKROCIP ]",
-            "Yuksek teknolojili aktif yetenekler ve otonom taret zekasi icin gerekli islemci.",
-            "KAYNAK: Sektor Boss'larindan nadir olarak duser.",
+            "QUANTUM PROCESSOR (CPU)",
+            "[ ADVANCED TECH COMPONENT ]",
+            "High-grade computing matrix for laser algorithms and auto-turrets.",
+            "SOURCE: Found in Ancient Space Chests and elite sector bosses.",
             { 0.35f, 0.95f, 0.85f, 1.0f }
         },
         {
-            "KADIM TEKNOLOJI ANAHTARI",
-            "[ PRESTIJ ERISIM BILETI ]",
-            "Agactaki Muhurlu Kadim Teknolojileri ve uzaydaki Kadim Sandiklari acar.",
-            "KAYNAK: Sektor Boss zaferleri ve Anomali Asteroidi avindan kazanilir.",
+            "SECTOR / ANCIENT KEY",
+            "[ LOST TECH KEY TOKEN ]",
+            "Unlocks new galaxy sectors and unseals lost alien technology nodes.",
+            "SOURCE: Dropped by Key Signal Asteroids and completed mission quests.",
             { 1.0f, 0.85f, 0.30f, 1.0f }
         }
     };

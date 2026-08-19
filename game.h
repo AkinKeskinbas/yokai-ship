@@ -472,6 +472,7 @@ private:
     void TargetAndFireLasers(float deltaTime);
     void UpdateTurrets(float deltaTime);
     void TriggerBossEncounter(int bossType = 1);
+    void SpawnBoss(int bossType, float startX = -1.0f, float startY = -150.0f);
     void ResetRun();
 
     // Final Boss Encounter Helpers
@@ -623,6 +624,10 @@ private:
     float m_explosionStaggerTimer = 0.0f;
     float m_runSummaryInputDelay = 0.0f;
     DirectX::XMFLOAT2 m_defeatedBossPos{ 0.0f, 0.0f };
+
+    // Sector 5 Multi-Boss Rush Queue
+    std::vector<int> m_sector5BossQueue;
+    int m_sector5DefeatedCount = 0;
 };
 
 #endif // GAME_H
