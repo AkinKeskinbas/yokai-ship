@@ -725,8 +725,8 @@ void Game::UpdateGameplay(float deltaTime)
         if (m_fuel <= 0.0f)
         {
             m_fuel = 0.0f;
-            m_runState = RunState::EnergyDepleted;
-            m_runSummaryInputDelay = 0.40f;
+            m_runState = RunState::RunEnded;
+            m_runSummaryInputDelay = 0.50f;
             m_superVacuumActive = true; // Safely sweep remaining nearby materials
             TriggerCameraShake(0.20f, 4.0f);
         }
@@ -3032,6 +3032,20 @@ void Game::TargetAndFireLasers(float deltaTime)
 
                     if (m_soundPat != -1) PlayAudio(m_soundPat);
 
+                    // Drop Reishi crystals from destroyed shield orb
+                    for (int r = 0; r < 3; ++r)
+                    {
+                        ResourcePickup p;
+                        p.position = target.bossOrb->position;
+                        float rAngle = RandomFloat(0.0f, 2.0f * PI);
+                        float rSpd = RandomFloat(60.0f, 150.0f);
+                        p.velocity = { cosf(rAngle) * rSpd, sinf(rAngle) * rSpd };
+                        p.scale = 0.08f;
+                        p.type = PickupType::Reishi;
+                        p.amount = 2;
+                        m_pickups.push_back(p);
+                    }
+
                     // Check if all 4 shield orbs are dead
                     bool anyAlive = false;
                     for (const auto& ob : m_bossOrbs)
@@ -3048,10 +3062,11 @@ void Game::TargetAndFireLasers(float deltaTime)
                                 ast.invulnerable = false;
                                 ast.finalPhase = FinalBossPhase::Phase1;
                                 ast.finalAttackTimer = 1.0f;
+                                TriggerShockwave(ast.position, 280.0f, 0.0f);
                                 break;
                             }
                         }
-                        TriggerCameraShake(0.40f, 6.0f);
+                        TriggerCameraShake(0.50f, 8.0f);
                     }
                 }
             }
@@ -3529,7 +3544,28 @@ void Game::SpawnBoss(int bossType, float startX, float startY)
         boss.bossTargetPos = DirectX::XMFLOAT2(startX, EnemyConfig::BossFinal.hoverY);
 
         // Spawn 4 initial destructible shield orbs around the boss
-        SpawnGhostOrbs(boss.position);
+        m_bossOrbs.clear();
+        m_bossBlades.clear();
+        float angles[4] = { 0.0f, 1.5707963f, 3.14159265f, 4.712389f };
+        for (int k = 0; k < 4; ++k)
+        {
+            BossOrb orb;
+            orb.angle = angles[k];
+            orb.orbitRadius = EnemyConfig::BossFinal.orbOrbitRadius;
+            orb.position = { boss.position.x + cosf(orb.angle) * orb.orbitRadius, boss.position.y + sinf(orb.angle) * orb.orbitRadius };
+            orb.hp = EnemyConfig::BossFinal.orbHp;
+            orb.maxHp = EnemyConfig::BossFinal.orbHp;
+            orb.radius = EnemyConfig::BossFinal.orbRadius;
+            orb.scale = EnemyConfig::BossFinal.orbScale;
+            orb.fireInterval = EnemyConfig::BossFinal.orbFireInterval;
+            orb.fireTimer = 0.4f + (float)k * 0.45f;
+            orb.attackPattern = k % 3;
+            orb.flashTimer = 0.0f;
+            orb.alive = true;
+            orb.isGhost = false;
+            orb.ghostLifetime = 9999.0f;
+            m_bossOrbs.push_back(orb);
+        }
     }
 
     m_asteroids.push_back(boss);
@@ -4584,7 +4620,7 @@ void Game::DrawRunSummary()
     }
     else
     {
-        DrawMatrixString(cardX + 70.0f, cardY + 24.0f, "EXPEDITION COMPLETE: RETURNED TO BASE", 2.7f, m_texLaser, { 0.40f, 0.95f, 1.0f, 1.0f });
+        DrawMatrixString(cardX + 45.0f, cardY + 24.0f, "ENERGY DEPLETED: EXPEDITION CONCLUDED", 2.4f, m_texLaser, { 0.40f, 0.95f, 1.0f, 1.0f });
     }
 
     DrawMatrixString(cardX + 165.0f, cardY + 58.0f, "MISSION LOOT & EXPEDITION REPORT", 1.8f, m_texLaser, { 0.85f, 0.85f, 0.90f, 0.85f });
@@ -4943,6 +4979,20 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
     if (boss.finalPhase == FinalBossPhase::OrbShield)
     {
         // Boss is invulnerable. Destructible shield orbs handle firing and player must destroy all 4 to proceed!
+        int aliveDestructibleCount = 0;
+        for (const auto& orb : m_bossOrbs)
+        {
+            if (orb.alive && !orb.isGhost) aliveDestructibleCount++;
+        }
+
+        if (aliveDestructibleCount == 0)
+        {
+            boss.invulnerable = false;
+            boss.finalPhase = FinalBossPhase::Phase1;
+            boss.finalAttackTimer = 1.0f;
+            TriggerCameraShake(0.50f, 8.0f);
+            TriggerShockwave(boss.position, 280.0f, 0.0f);
+        }
     }
     else if (boss.finalPhase == FinalBossPhase::Phase1)
     {
