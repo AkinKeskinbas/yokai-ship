@@ -156,7 +156,8 @@ UpgradeTree::UpgradeTree()
 }
 
 void UpgradeTree::Initialize(int texLaser, int texNumber, int texHeart, int texResources, int texSpaceship,
-                            int texVida, int texDisli, int texCpu, int texKey, int soundShoot)
+                            int texVida, int texDisli, int texCpu, int texKey, int soundClick,
+                            int texSkillDash, int texSkillWave, int texSkillBuff)
 {
     m_texLaser = texLaser;
     m_texNumber = texNumber;
@@ -167,7 +168,10 @@ void UpgradeTree::Initialize(int texLaser, int texNumber, int texHeart, int texR
     m_texDisli = texDisli;
     m_texCpu = texCpu;
     m_texKey = texKey;
-    m_soundShoot = soundShoot;
+    m_soundClick = soundClick;
+    m_texSkillDash = texSkillDash;
+    m_texSkillWave = texSkillWave;
+    m_texSkillBuff = texSkillBuff;
 
     SetupNodes();
     UpdateLayout();
@@ -1564,7 +1568,7 @@ bool UpgradeTree::UnsealLostTechNode(int nodeId, PlayerResources& bank)
         bank.key -= node->keySealCost;
         node->isSealBroken = true;
         node->unlockPulseTimer = 1.0f;
-        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        if (m_soundClick != -1) PlayAudio(m_soundClick);
         return true;
     }
     return false;
@@ -1602,9 +1606,9 @@ bool UpgradeTree::PurchaseUpgrade(int nodeId, PlayerResources& bank, PlayerStats
 
     ApplyStats(stats);
 
-    if (m_soundShoot != -1)
+    if (m_soundClick != -1)
     {
-        PlayAudio(m_soundShoot);
+        PlayAudio(m_soundClick);
     }
 
     return true;
@@ -1617,37 +1621,25 @@ void UpgradeTree::AddRunEarnings(PlayerResources& bank, int reishi, int vida, in
     bank.disli += disli;
     bank.cpu += cpu;
     bank.key += key;
-
-    m_quest.currentAmount += reishi;
-    if (m_quest.currentAmount >= m_quest.targetAmount && !m_quest.completed)
-    {
-        m_quest.completed = true;
-        bank.key += 1;
-    }
 }
 
 void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& bank, bool& outStartGame, int currentSector)
 {
-    m_globalTime += deltaTime;
-    m_currentSectorIndex = currentSector;
+    (void)currentSector;
     outStartGame = false;
+    m_globalTime += deltaTime;
+
+    // Smooth Zoom interpolation
+    m_zoom += (m_targetZoom - m_zoom) * 12.0f * deltaTime;
+    m_panOffset.x += (m_targetPanOffset.x - m_panOffset.x) * 12.0f * deltaTime;
+    m_panOffset.y += (m_targetPanOffset.y - m_panOffset.y) * 12.0f * deltaTime;
 
     int mouseX = InputMouse_GetX();
     int mouseY = InputMouse_GetY();
 
-    // 1. Mouse Wheel Zoom In / Out
-    int wheel = InputMouse_GetScrollWheel();
-    if (wheel > 0)
-    {
-        m_targetZoom = std::min(1.50f, m_targetZoom + 0.10f);
-    }
-    else if (wheel < 0)
-    {
-        m_targetZoom = std::max(0.65f, m_targetZoom - 0.10f);
-    }
-
-    // 2. Right-Click or Middle-Click Mouse Drag (Pan)
-    if (InputMouse_IsPress(MOUSE_BUTTON_RIGHT) || InputMouse_IsPress(MOUSE_BUTTON_MIDDLE))
+    // Mouse Panning with Right Click or Middle Click
+    bool rBtn = InputMouse_IsPress(MOUSE_BUTTON_RIGHT);
+    if (rBtn)
     {
         if (!m_isPanning)
         {
@@ -1657,10 +1649,10 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
         }
         else
         {
-            int dx = mouseX - m_lastMouseX;
-            int dy = mouseY - m_lastMouseY;
-            m_targetPanOffset.x += (float)dx;
-            m_targetPanOffset.y += (float)dy;
+            float dx = (float)(mouseX - m_lastMouseX);
+            float dy = (float)(mouseY - m_lastMouseY);
+            m_targetPanOffset.x += dx;
+            m_targetPanOffset.y += dy;
             m_lastMouseX = mouseX;
             m_lastMouseY = mouseY;
         }
@@ -1670,69 +1662,58 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
         m_isPanning = false;
     }
 
-    // 3. Reset Zoom & Pan Shortcut [R]
-    if (InputKeyboard_IsTrigger(KK_R))
-    {
-        m_targetZoom = 0.95f;
-        m_targetPanOffset = { 0.0f, 0.0f };
-    }
+    // Mouse Wheel Zoom
+    // Optional clamp offsets
+    m_targetPanOffset.x = std::clamp(m_targetPanOffset.x, -500.0f, 500.0f);
+    m_targetPanOffset.y = std::clamp(m_targetPanOffset.y, -350.0f, 350.0f);
 
-    // 4. Smooth Interpolation for Zoom and Pan
-    m_zoom += (m_targetZoom - m_zoom) * 14.0f * deltaTime;
-    m_panOffset.x += (m_targetPanOffset.x - m_panOffset.x) * 14.0f * deltaTime;
-    m_panOffset.y += (m_targetPanOffset.y - m_panOffset.y) * 14.0f * deltaTime;
-
-    // Recalculate node screen positions based on current zoom & pan
     UpdateLayout();
 
+    // Hover detection for nodes
     m_hoveredNodeId = -1;
-
-    // Check hover over each node
     for (auto& node : m_nodes)
     {
-        float curSize = node.isCenterHub ? (50.0f * m_zoom) : (node.isCapstone ? (44.0f * m_zoom) : m_nodeSize);
-        float halfW = curSize * 0.5f;
-        float halfH = curSize * 0.5f;
-
-        bool isInside = (mouseX >= node.screenPos.x - halfW && mouseX <= node.screenPos.x + halfW &&
-                         mouseY >= node.screenPos.y - halfH && mouseY <= node.screenPos.y + halfH);
-
-        if (isInside)
+        float halfW = m_nodeSize * m_zoom * 0.5f;
+        float halfH = m_nodeSize * m_zoom * 0.5f;
+        if (mouseX >= node.screenPos.x - halfW && mouseX <= node.screenPos.x + halfW &&
+            mouseY >= node.screenPos.y - halfH && mouseY <= node.screenPos.y + halfH)
         {
             m_hoveredNodeId = node.id;
         }
 
-        // Hover animation lerp
-        float targetHover = isInside ? 1.0f : 0.0f;
-        node.hoverProgress += (targetHover - node.hoverProgress) * 12.0f * deltaTime;
+        // Animate hover progress
+        float targetHover = (m_hoveredNodeId == node.id) ? 1.0f : 0.0f;
+        node.hoverProgress += (targetHover - node.hoverProgress) * 14.0f * deltaTime;
 
-        // Unlock pulse decay
+        // Animate pulse timer
         if (node.unlockPulseTimer > 0.0f)
         {
-            node.unlockPulseTimer -= deltaTime;
+            node.unlockPulseTimer -= deltaTime * 2.0f;
         }
     }
 
-    // Check hover over Bank Resource rows
+    // Hover detection for Left Bank Resources
     m_hoveredBankIndex = -1;
-    float panelX = 40.0f;
-    float panelY = 45.0f;
-    float startY = panelY + 55.0f;
-    float rowSpacing = 48.0f;
+    float cardX = 35.0f;
+    float cardStartY = 110.0f;
+    float cardW = 210.0f;
+    float cardH = 50.0f;
+    float cardGap = 10.0f;
+
     for (int i = 0; i < 5; ++i)
     {
-        float curY = startY + i * rowSpacing;
-        if (mouseX >= panelX && mouseX <= panelX + 280.0f &&
-            mouseY >= curY && mouseY <= curY + 42.0f)
+        float cy = cardStartY + i * (cardH + cardGap);
+        if (mouseX >= cardX && mouseX <= cardX + cardW &&
+            mouseY >= cy && mouseY <= cy + cardH)
         {
             m_hoveredBankIndex = i;
             break;
         }
     }
 
-    // Check click on Right Panel Sector cards
-    float panelRightX = 1320.0f;
-    float panelRightW = 250.0f;
+    // Check Sector Stage Clicks (Right Panel)
+    float panelRightX = (float)SCREEN_WIDTH - 275.0f;
+    float panelRightW = 240.0f;
     float startSectorY = 45.0f + 48.0f;
     float sectorCardH = 54.0f;
     float sectorSpacing = 62.0f;
@@ -1750,6 +1731,7 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
                 if (m_sectors[i].unlocked)
                 {
                     m_currentSectorIndex = m_sectors[i].stageNumber;
+                    if (m_soundClick != -1) PlayAudio(m_soundClick);
                 }
                 else if (bank.key >= 1)
                 {
@@ -1757,6 +1739,7 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
                     bank.key -= 1;
                     m_sectors[i].unlocked = true;
                     m_currentSectorIndex = m_sectors[i].stageNumber;
+                    if (m_soundClick != -1) PlayAudio(m_soundClick);
                 }
             }
         }
@@ -1773,15 +1756,18 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
         if (mouseX >= zPanelX + 6.0f && mouseX <= zPanelX + 34.0f)
         {
             m_targetZoom = std::min(1.50f, m_targetZoom + 0.12f);
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
         }
         else if (mouseX >= zPanelX + 96.0f && mouseX <= zPanelX + 124.0f)
         {
             m_targetZoom = std::max(0.65f, m_targetZoom - 0.12f);
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
         }
         else if (mouseX >= zPanelX + 132.0f && mouseX <= zPanelX + 252.0f)
         {
             m_targetZoom = 0.95f;
             m_targetPanOffset = { 0.0f, 0.0f };
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
         }
     }
 
@@ -1803,6 +1789,7 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
         }
         else if (m_btnStartHovered)
         {
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
             outStartGame = true;
         }
     }
@@ -1810,6 +1797,7 @@ void UpgradeTree::Update(float deltaTime, PlayerStats& stats, PlayerResources& b
     // Keyboard shortcut to start expedition
     if (InputKeyboard_IsTrigger(KK_SPACE))
     {
+        if (m_soundClick != -1) PlayAudio(m_soundClick);
         outStartGame = true;
     }
 }
@@ -2680,21 +2668,42 @@ void UpgradeTree::DrawNodeGlyph(NodeIconType icon, float cx, float cy, float siz
         }
         case NodeIconType::SkillEmp:
         {
-            DrawTextMatrix(cx - 10.0f, cy - 8.0f, "Q", 2.2f, col);
-            Sprite_DrawRectBorder(cx - half * 0.7f, cy - half * 0.7f, size * 0.7f, size * 0.7f, 1.5f, col);
+            if (m_texSkillWave != -1)
+            {
+                Sprite_Draw(m_texSkillWave, cx - half * 1.15f, cy - half * 1.15f, size * 1.15f, size * 1.15f, { 1.0f, 1.0f, 1.0f, 1.0f });
+            }
+            else
+            {
+                DrawTextMatrix(cx - 10.0f, cy - 8.0f, "Q", 2.2f, col);
+                Sprite_DrawRectBorder(cx - half * 0.7f, cy - half * 0.7f, size * 0.7f, size * 0.7f, 1.5f, col);
+            }
             break;
         }
         case NodeIconType::SkillDash:
         {
-            Sprite_DrawLine(cx - half * 0.7f, cy, cx + half * 0.5f, cy, 2.5f, col);
-            Sprite_DrawLine(cx + half * 0.2f, cy - half * 0.4f, cx + half * 0.6f, cy, 2.0f, col);
-            Sprite_DrawLine(cx + half * 0.2f, cy + half * 0.4f, cx + half * 0.6f, cy, 2.0f, col);
+            if (m_texSkillDash != -1)
+            {
+                Sprite_Draw(m_texSkillDash, cx - half * 1.15f, cy - half * 1.15f, size * 1.15f, size * 1.15f, { 1.0f, 1.0f, 1.0f, 1.0f });
+            }
+            else
+            {
+                Sprite_DrawLine(cx - half * 0.7f, cy, cx + half * 0.5f, cy, 2.5f, col);
+                Sprite_DrawLine(cx + half * 0.2f, cy - half * 0.4f, cx + half * 0.6f, cy, 2.0f, col);
+                Sprite_DrawLine(cx + half * 0.2f, cy + half * 0.4f, cx + half * 0.6f, cy, 2.0f, col);
+            }
             break;
         }
         case NodeIconType::SkillOvercharge:
         {
-            DrawTextMatrix(cx - 10.0f, cy - 8.0f, "E", 2.2f, col);
-            Sprite_DrawLine(cx, cy - half * 0.7f, cx + half * 0.4f, cy + half * 0.6f, 2.0f, col);
+            if (m_texSkillBuff != -1)
+            {
+                Sprite_Draw(m_texSkillBuff, cx - half * 1.15f, cy - half * 1.15f, size * 1.15f, size * 1.15f, { 1.0f, 1.0f, 1.0f, 1.0f });
+            }
+            else
+            {
+                DrawTextMatrix(cx - 10.0f, cy - 8.0f, "E", 2.2f, col);
+                Sprite_DrawLine(cx, cy - half * 0.7f, cx + half * 0.4f, cy + half * 0.6f, 2.0f, col);
+            }
             break;
         }
         case NodeIconType::Question:

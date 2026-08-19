@@ -238,7 +238,7 @@ bool Game::Initialize(HWND hWnd)
     m_texLaser = Texture_Load(L"asset/laser_no_bg.png");
     m_texLaserHit = Texture_Load(L"asset/laser_effect_no_bg.png");
     m_texAsteroid = Texture_Load(L"asset/astroid.png");
-    m_texBoss1 = Texture_Load(L"asset/boss1.png");
+    m_texBoss1 = Texture_Load(L"asset/first_boss.png"); // Replaced boss1.png with first_boss.png
     m_texBoss2 = Texture_Load(L"asset/boss2.png");
     m_texBoss3 = Texture_Load(L"asset/boss3.png");
     m_texFinalBoss = Texture_Load(L"asset/final_boss.png");
@@ -256,6 +256,9 @@ bool Game::Initialize(HWND hWnd)
     m_texKey = Texture_Load(L"asset/key.png");
     m_texChest = Texture_Load(L"asset/chest.png");
     m_texTaret = Texture_Load(L"asset/taret.png");
+    m_texSkillDash = Texture_Load(L"asset/dashSkill.png");
+    m_texSkillWave = Texture_Load(L"asset/energyWaveSkill.png");
+    m_texSkillBuff = Texture_Load(L"asset/buffSkill.png");
 
     m_texExplosions.resize(6);
     m_texExplosions[0] = Texture_Load(L"asset/exploding_1_no_bg.png");
@@ -267,10 +270,21 @@ bool Game::Initialize(HWND hWnd)
 
     // Load audio
     m_soundShoot = LoadAudio("asset/shoot.wav");
+    m_soundPat = LoadAudio("asset/pat.mpeg");
+    m_soundClick = LoadAudio("asset/retroClick.mpeg");
+    m_soundMusic = LoadAudio("asset/gameMusic.mpeg");
+
+    // Background music loop at low volume ("gameMusic.mpeg kisik seste calsin")
+    if (m_soundMusic != -1)
+    {
+        SetAudioVolume(m_soundMusic, 0.18f);
+        PlayAudio(m_soundMusic, true);
+    }
 
     // Initialize Upgrade Tree with real textures
     m_upgradeTree.Initialize(m_texLaser, m_texNumber, m_texHeart, m_texResources, m_texSpaceship,
-                            m_texVida, m_texDisli, m_texCpu, m_texKey, m_soundShoot);
+                            m_texVida, m_texDisli, m_texCpu, m_texKey, m_soundClick,
+                            m_texSkillDash, m_texSkillWave, m_texSkillBuff);
     m_upgradeTree.ApplyStats(m_stats);
     m_reishiCount = m_resources.reishi;
 
@@ -285,6 +299,22 @@ bool Game::Initialize(HWND hWnd)
 
 void Game::Finalize()
 {
+    if (m_soundMusic != -1)
+    {
+        StopAudio(m_soundMusic);
+        UnloadAudio(m_soundMusic);
+        m_soundMusic = -1;
+    }
+    if (m_soundClick != -1)
+    {
+        UnloadAudio(m_soundClick);
+        m_soundClick = -1;
+    }
+    if (m_soundPat != -1)
+    {
+        UnloadAudio(m_soundPat);
+        m_soundPat = -1;
+    }
     if (m_soundShoot != -1)
     {
         UnloadAudio(m_soundShoot);
@@ -595,6 +625,7 @@ void Game::UpdateGameplay(float deltaTime)
         // Option 1: Open with 1 Key [E] or Left Click
         if ((InputKeyboard_IsTrigger(KK_E) || (leftClicked && hoverBtn1)) && m_activeChestIndex >= 0 && m_activeChestIndex < (int)m_chests.size())
         {
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
             if (m_resources.key >= 1)
             {
                 m_resources.key -= 1;
@@ -652,7 +683,6 @@ void Game::UpdateGameplay(float deltaTime)
 
                 TriggerCameraShake(0.55f, 14.0f);
                 TriggerShockwave(chestPos, 220.0f, 0.0f);
-                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
 
                 m_chests.erase(m_chests.begin() + m_activeChestIndex);
                 m_isChestModalActive = false;
@@ -663,6 +693,7 @@ void Game::UpdateGameplay(float deltaTime)
         // Option 2: Decline & Save Key [ESC] or Left Click
         if (InputKeyboard_IsTrigger(KK_ESCAPE) || (leftClicked && hoverBtn2))
         {
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
             if (m_activeChestIndex >= 0 && m_activeChestIndex < (int)m_chests.size())
             {
                 // Push chest away so it doesn't immediately retrigger
@@ -973,6 +1004,8 @@ void Game::UpdateGameplay(float deltaTime)
         {
             if (it->destroyed)
             {
+                if (m_soundPat != -1) PlayAudio(m_soundPat);
+
                 // Enemy death drops: Reishi + chance of Vida
                 int dropNum = RandomInt(2, 4);
                 for (int k = 0; k < dropNum; ++k)
@@ -1464,6 +1497,8 @@ void Game::UpdateGameplay(float deltaTime)
                 }
                 else
                 {
+                    if (m_soundPat != -1) PlayAudio(m_soundPat);
+
                     // Anomalous asteroid drops guaranteed Key!
                     if (it->isAnomalousSignal)
                     {
@@ -2662,6 +2697,12 @@ void Game::SpawnAsteroids(float deltaTime)
 
 void Game::SpawnEnemies(float deltaTime)
 {
+    // Enemy drones do not spawn in Sector 1; they start appearing in Sector 2 (Round 2) onwards!
+    if (m_calamity.level < 2 || m_bossTriggered)
+    {
+        return;
+    }
+
     m_enemySpawnTimer += deltaTime;
     if (m_enemySpawnTimer >= m_enemySpawnInterval && (int)m_enemies.size() < m_maxAliveEnemies)
     {
@@ -2896,7 +2937,7 @@ void Game::TargetAndFireLasers(float deltaTime)
                     orbExp.textureSequence = m_texExplosions;
                     m_vfxs.push_back(orbExp);
 
-                    if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    if (m_soundPat != -1) PlayAudio(m_soundPat);
 
                     // Check if all 4 shield orbs are dead
                     bool anyAlive = false;
@@ -2962,7 +3003,7 @@ void Game::TargetAndFireLasers(float deltaTime)
     if (anyFired && m_laserFireCooldown <= 0.0f)
     {
         m_laserFireCooldown = fireInterval;
-        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        // Player laser sound is disabled as requested ("player lazer sesini kapatalim")
     }
 }
 
@@ -3440,34 +3481,54 @@ void Game::DrawSkillBar()
 
         if (isUnlocked)
         {
-            float iconX = x + cardW * 0.5f;
-            float iconY = y + cardH * 0.45f;
+            float iconSize = 42.0f;
+            float iconX = x + cardW * 0.5f - iconSize * 0.5f;
+            float iconY = y + cardH * 0.44f - iconSize * 0.5f;
             DirectX::XMFLOAT4 iconCol = isReady
-                ? DirectX::XMFLOAT4(1.0f, 0.95f, 0.80f, 1.0f)
-                : DirectX::XMFLOAT4(0.45f, 0.40f, 0.50f, 0.6f);
+                ? DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f)
+                : DirectX::XMFLOAT4(0.40f, 0.35f, 0.45f, 0.65f);
 
             if (slot.type == ActiveSkillType::EmpWave)
             {
-                Sprite_DrawRectBorder(iconX - 12.0f, iconY - 12.0f, 24.0f, 24.0f, 1.5f, iconCol);
-                Sprite_DrawLine(iconX - 10.0f, iconY, iconX + 10.0f, iconY, 2.0f, iconCol);
+                if (m_texSkillWave != -1)
+                {
+                    Sprite_Draw(m_texSkillWave, iconX, iconY, iconSize, iconSize, iconCol);
+                }
+                else
+                {
+                    Sprite_DrawRectBorder(iconX, iconY, iconSize, iconSize, 1.5f, iconCol);
+                    Sprite_DrawLine(iconX + 2.0f, iconY + iconSize * 0.5f, iconX + iconSize - 2.0f, iconY + iconSize * 0.5f, 2.0f, iconCol);
+                }
             }
             else if (slot.type == ActiveSkillType::Overcharge)
             {
-                Sprite_DrawLine(iconX, iconY - 12.0f, iconX + 10.0f, iconY + 10.0f, 2.0f, iconCol);
-                Sprite_DrawLine(iconX, iconY - 12.0f, iconX - 10.0f, iconY + 10.0f, 2.0f, iconCol);
+                if (m_texSkillBuff != -1)
+                {
+                    Sprite_Draw(m_texSkillBuff, iconX, iconY, iconSize, iconSize, iconCol);
+                }
+                else
+                {
+                    Sprite_DrawLine(iconX + iconSize * 0.5f, iconY + 2.0f, iconX + iconSize - 4.0f, iconY + iconSize - 4.0f, 2.0f, iconCol);
+                    Sprite_DrawLine(iconX + iconSize * 0.5f, iconY + 2.0f, iconX + 4.0f, iconY + iconSize - 4.0f, 2.0f, iconCol);
+                }
             }
             else if (slot.type == ActiveSkillType::PhaseDash)
             {
-                Sprite_DrawLine(iconX - 10.0f, iconY - 8.0f, iconX, iconY, 2.0f, iconCol);
-                Sprite_DrawLine(iconX - 10.0f, iconY + 8.0f, iconX, iconY, 2.0f, iconCol);
-                Sprite_DrawLine(iconX, iconY - 8.0f, iconX + 10.0f, iconY, 2.0f, iconCol);
-                Sprite_DrawLine(iconX, iconY + 8.0f, iconX + 10.0f, iconY, 2.0f, iconCol);
+                if (m_texSkillDash != -1)
+                {
+                    Sprite_Draw(m_texSkillDash, iconX, iconY, iconSize, iconSize, iconCol);
+                }
+                else
+                {
+                    Sprite_DrawLine(iconX + 4.0f, iconY + iconSize * 0.3f, iconX + iconSize * 0.5f, iconY + iconSize * 0.5f, 2.0f, iconCol);
+                    Sprite_DrawLine(iconX + 4.0f, iconY + iconSize * 0.7f, iconX + iconSize * 0.5f, iconY + iconSize * 0.5f, 2.0f, iconCol);
+                }
             }
 
             if (slot.cooldownTimer > 0.0f)
             {
                 float cdPct = slot.cooldownTimer / slot.maxCooldown;
-                Sprite_DrawRect(x, y + cardH * (1.0f - cdPct), cardW, cardH * cdPct, { 0.05f, 0.03f, 0.08f, 0.75f });
+                Sprite_DrawRect(x, y + cardH * (1.0f - cdPct), cardW, cardH * cdPct, { 0.05f, 0.03f, 0.08f, 0.80f });
                 int cdSec = (int)ceilf(slot.cooldownTimer);
                 DrawNumber(x + cardW * 0.5f - 8.0f, y + cardH * 0.5f - 8.0f, cdSec, 1, 14.0f, m_texNumber, { 1.0f, 0.4f, 0.4f, 1.0f });
             }

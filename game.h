@@ -515,8 +515,15 @@ private:
     int m_texKey = -1;            // key.png
     int m_texChest = -1;          // chest.png
     int m_texTaret = -1;          // taret.png
+    int m_texSkillDash = -1;      // dashSkill.png
+    int m_texSkillWave = -1;      // energyWaveSkill.png
+    int m_texSkillBuff = -1;      // buffSkill.png
     std::vector<int> m_texExplosions;
-    int m_soundShoot = -1;
+
+    int m_soundShoot = -1;        // shoot.wav
+    int m_soundPat = -1;          // pat.mpeg (enemy death sound)
+    int m_soundClick = -1;        // retroClick.mpeg (UI/upgrade click sound)
+    int m_soundMusic = -1;        // gameMusic.mpeg (background music)
 
     // Player state & Upgrade Tree
     DirectX::XMFLOAT2 m_playerPos{ 800.0f, 450.0f };

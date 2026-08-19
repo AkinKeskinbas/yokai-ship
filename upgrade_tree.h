@@ -146,7 +146,8 @@ public:
     ~UpgradeTree() = default;
 
     void Initialize(int texLaser, int texNumber, int texHeart, int texResources, int texSpaceship,
-                    int texVida, int texDisli, int texCpu, int texKey, int soundShoot);
+                    int texVida, int texDisli, int texCpu, int texKey, int soundClick,
+                    int texSkillDash = -1, int texSkillWave = -1, int texSkillBuff = -1);
     void Update(float deltaTime, PlayerStats& stats, PlayerResources& bank, bool& outStartGame, int currentSector);
     void Draw(const PlayerResources& bank, int currentStage);
 
@@ -220,7 +221,10 @@ private:
     int m_texDisli = -1;
     int m_texCpu = -1;
     int m_texKey = -1;
-    int m_soundShoot = -1;
+    int m_texSkillDash = -1;
+    int m_texSkillWave = -1;
+    int m_texSkillBuff = -1;
+    int m_soundClick = -1;
 
     // Tree origin and sizing
     DirectX::XMFLOAT2 m_treeCenter{ 800.0f, 465.0f };

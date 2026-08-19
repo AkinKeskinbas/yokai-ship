@@ -13,10 +13,9 @@ namespace EnemyConfig
     // ========================================================================
     // 1. TEST VE DEBUG AYARLARI (TEST & DEBUG SETTINGS)
     // ========================================================================
-    // Oyun başlar başlamaz test için Boss 2'nin gelmesini sağlar.
-    // Test bittiğinde 'TEST_SPAWN_BOSS2_AT_START = false;' yapabilirsiniz.
-    inline constexpr bool TEST_SPAWN_BOSS2_AT_START = true;
-    inline constexpr int  TEST_BOSS_TYPE             = 4;     // 1: Boss 1 (Kaya), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
+    // Normal oyun akışından başlat: Sektör 1'den başlar ve Felaket Sayacı dolunca Boss 1 gelir.
+    inline constexpr bool TEST_SPAWN_BOSS2_AT_START = false;
+    inline constexpr int  TEST_BOSS_TYPE             = 1;     // 1: Boss 1 (first_boss.png), 2: Boss 2 (Void Destroyer), 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
 
     // ========================================================================
     // 2. NORMAL DÜŞMAN DRONE AYARLARI (ENEMY DRONE 1 CONFIG)

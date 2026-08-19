@@ -1,22 +1,30 @@
 /*==============================================================================
    オーディオ管理 [audio.cpp]
-                                                         Author : Akin Keskinbas
-                                                         Date   : 2026/7/1
+                                                          Author : Akin Keskinbas
+                                                          Date   : 2026/7/1
 ==============================================================================*/
 #include <windows.h>
 #include <mmsystem.h>
 #include <xaudio2.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
 #include <assert.h>
+#include <vector>
 #include "audio.h"
 
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "xaudio2.lib")
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mfreadwrite.lib")
+#pragma comment(lib, "mfuuid.lib")
 
 static IXAudio2* g_Xaudio{};
 static IXAudio2MasteringVoice* g_MasteringVoice{};
 
 void InitAudio()
 {
+	MFStartup(MF_VERSION);
 	// XAudio    
 	XAudio2Create(&g_Xaudio, 0);
 
@@ -26,6 +34,10 @@ void InitAudio()
 
 void UninitAudio()
 {
+	for (int i = 0; i < 100; i++)
+	{
+		UnloadAudio(i);
+	}
 	if (g_MasteringVoice)
 	{
 		g_MasteringVoice->DestroyVoice();
@@ -36,6 +48,7 @@ void UninitAudio()
 		g_Xaudio->Release();
 		g_Xaudio = nullptr;
 	}
+	MFShutdown();
 }
 
 struct AUDIO
@@ -66,9 +79,93 @@ int LoadAudio(const char *FileName)
 	if (index == -1)
 		return -1;
 
-	//  T E   h f [ ^ Ǎ 
-	WAVEFORMATEX wfx = { 0 };
+	wchar_t wPath[MAX_PATH] = { 0 };
+	MultiByteToWideChar(CP_ACP, 0, FileName, -1, wPath, MAX_PATH);
 
+	// 1. Try Loading via Windows Media Foundation (Supports WAV, MPEG, MP3, etc.)
+	IMFSourceReader* pReader = nullptr;
+	HRESULT hr = MFCreateSourceReaderFromURL(wPath, nullptr, &pReader);
+	if (SUCCEEDED(hr) && pReader)
+	{
+		IMFMediaType* pPartialType = nullptr;
+		MFCreateMediaType(&pPartialType);
+		pPartialType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+		pPartialType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+		hr = pReader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, pPartialType);
+		pPartialType->Release();
+
+		if (SUCCEEDED(hr))
+		{
+			IMFMediaType* pUncompressedType = nullptr;
+			hr = pReader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, &pUncompressedType);
+			if (SUCCEEDED(hr) && pUncompressedType)
+			{
+				WAVEFORMATEX* pWfx = nullptr;
+				UINT32 cbFormat = 0;
+				hr = MFCreateWaveFormatExFromMFMediaType(pUncompressedType, &pWfx, &cbFormat);
+				pUncompressedType->Release();
+
+				if (SUCCEEDED(hr) && pWfx)
+				{
+					std::vector<BYTE> audioData;
+					while (true)
+					{
+						IMFSample* pSample = nullptr;
+						DWORD flags = 0;
+						hr = pReader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, nullptr, &flags, nullptr, &pSample);
+						if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM))
+						{
+							if (pSample) pSample->Release();
+							break;
+						}
+						if (pSample)
+						{
+							IMFMediaBuffer* pBuffer = nullptr;
+							hr = pSample->ConvertToContiguousBuffer(&pBuffer);
+							if (SUCCEEDED(hr) && pBuffer)
+							{
+								BYTE* pAudioBytes = nullptr;
+								DWORD cbBuffer = 0;
+								hr = pBuffer->Lock(&pAudioBytes, nullptr, &cbBuffer);
+								if (SUCCEEDED(hr))
+								{
+									audioData.insert(audioData.end(), pAudioBytes, pAudioBytes + cbBuffer);
+									pBuffer->Unlock();
+								}
+								pBuffer->Release();
+							}
+							pSample->Release();
+						}
+					}
+					pReader->Release();
+
+					if (!audioData.empty() && pWfx->nBlockAlign > 0)
+					{
+						g_Audio[index].Length = (int)audioData.size();
+						g_Audio[index].SoundData = new unsigned char[audioData.size()];
+						memcpy(g_Audio[index].SoundData, audioData.data(), audioData.size());
+						g_Audio[index].PlayLength = (int)audioData.size() / pWfx->nBlockAlign;
+
+						hr = g_Xaudio->CreateSourceVoice(&g_Audio[index].SourceVoice, pWfx);
+						CoTaskMemFree(pWfx);
+
+						if (SUCCEEDED(hr))
+						{
+							return index;
+						}
+						delete[] g_Audio[index].SoundData;
+						g_Audio[index].SoundData = nullptr;
+						return -1;
+					}
+					CoTaskMemFree(pWfx);
+				}
+			}
+		}
+		pReader->Release();
+	}
+
+	// 2. Fallback to mmio for standard WAV
+	WAVEFORMATEX wfx = { 0 };
 	{
 		HMMIO hmmio = NULL;
 		MMIOINFO mmioinfo = { 0 };
@@ -126,8 +223,7 @@ int LoadAudio(const char *FileName)
 		mmioClose(hmmio, 0);
 	}
 
-	//  T E   h \ [ X    
-	HRESULT hr = g_Xaudio->CreateSourceVoice(&g_Audio[index].SourceVoice, &wfx);
+	hr = g_Xaudio->CreateSourceVoice(&g_Audio[index].SourceVoice, &wfx);
 	if (FAILED(hr))
 	{
 		delete[] g_Audio[index].SoundData;
@@ -181,3 +277,19 @@ void PlayAudio(int Index, bool Loop)
 	//  Đ 
 	g_Audio[Index].SourceVoice->Start();
 }
+
+void SetAudioVolume(int Index, float Volume)
+{
+	if (Index < 0 || Index >= AUDIO_MAX || g_Audio[Index].SourceVoice == nullptr)
+		return;
+	g_Audio[Index].SourceVoice->SetVolume(Volume);
+}
+
+void StopAudio(int Index)
+{
+	if (Index < 0 || Index >= AUDIO_MAX || g_Audio[Index].SourceVoice == nullptr)
+		return;
+	g_Audio[Index].SourceVoice->Stop();
+	g_Audio[Index].SourceVoice->FlushSourceBuffers();
+}
+
