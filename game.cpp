@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <random>
 #include <string>
+#include <cstring>
 
 static constexpr float PI = 3.14159265f;
 
@@ -103,6 +104,19 @@ static void DrawMatrixString(float x, float y, const char* str, float size, int 
         }
         str++;
     }
+}
+
+// Matches DrawMatrixString's per-character advance (4.0f * size, spaces included) so text can
+// be reliably centered instead of relying on hand-tuned pixel offsets that drift out of sync
+// whenever the string or size changes.
+static float MatrixTextWidth(const char* str, float size)
+{
+    return (float)strlen(str) * 4.0f * size;
+}
+
+static float CenteredTextX(const char* str, float size, float centerX)
+{
+    return centerX - MatrixTextWidth(str, size) * 0.5f;
 }
 
 static void DrawNumber(float x, float y, int value, int digitCount, float spacing, int textureId, DirectX::XMFLOAT4 color = { 1.0f, 1.0f, 1.0f, 1.0f })
@@ -5652,20 +5666,25 @@ void Game::DrawMainMenu()
     bool interactiveMenu = (m_menuPhase == MainMenuPhase::Menu);
     DrawAmbientShip(m_playerPos.x + camX, m_playerPos.y + camY, interactiveMenu);
 
-    // Title / Logo
+    // Title / Logo -- centered from actual rendered text width, not a hand-tuned offset
+    float screenCenterX = (float)SCREEN_WIDTH * 0.5f;
     float titleY = (float)SCREEN_HEIGHT * 0.16f;
     float titlePulse = sinf(m_totalTime * 1.4f) * 0.08f + 0.92f;
-    DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 210.0f + camX, titleY + camY, "YOKAI SHIP", 5.2f, m_texLaser,
+    const char* titleText = "YOKAI SHIP";
+    const char* subtitleText = "DEEP SPACE EXPEDITION";
+    DrawMatrixString(CenteredTextX(titleText, 5.2f, screenCenterX) + camX, titleY + camY, titleText, 5.2f, m_texLaser,
         { 0.55f * titlePulse, 0.90f * titlePulse, 1.0f * titlePulse, 1.0f });
-    DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 130.0f + camX, titleY + 46.0f + camY, "DEEP SPACE EXPEDITION", 1.6f, m_texLaser,
+    DrawMatrixString(CenteredTextX(subtitleText, 1.6f, screenCenterX) + camX, titleY + 46.0f + camY, subtitleText, 1.6f, m_texLaser,
         { 0.55f, 0.70f, 0.85f, 0.85f });
 
     if (m_menuPhase == MainMenuPhase::Boot)
     {
         float blink = (sinf(m_menuBootPulseTimer * 3.2f) > 0.0f) ? 1.0f : 0.35f;
-        DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 150.0f + camX, (float)SCREEN_HEIGHT * 0.80f + camY, "> INITIALIZE SYSTEM", 2.0f, m_texLaser,
+        const char* bootText = "> INITIALIZE SYSTEM";
+        const char* pressText = "PRESS ANY KEY";
+        DrawMatrixString(CenteredTextX(bootText, 2.0f, screenCenterX) + camX, (float)SCREEN_HEIGHT * 0.80f + camY, bootText, 2.0f, m_texLaser,
             { 0.45f, 1.0f, 0.85f, 1.0f });
-        DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 110.0f + camX, (float)SCREEN_HEIGHT * 0.80f + 26.0f + camY, "PRESS ANY KEY", 1.5f, m_texLaser,
+        DrawMatrixString(CenteredTextX(pressText, 1.5f, screenCenterX) + camX, (float)SCREEN_HEIGHT * 0.80f + 26.0f + camY, pressText, 1.5f, m_texLaser,
             { 0.85f, 0.90f, 0.95f, blink });
     }
     else if (m_menuPhase == MainMenuPhase::BootGlitch)
@@ -5680,7 +5699,8 @@ void Game::DrawMainMenu()
             float lx = RandomFloat(0.0f, (float)SCREEN_WIDTH - lw);
             Sprite_DrawRect(lx, ly, lw, RandomFloat(1.0f, 3.0f), { 0.6f, 0.95f, 1.0f, RandomFloat(0.25f, 0.6f) });
         }
-        DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 140.0f, (float)SCREEN_HEIGHT * 0.80f, "SYSTEM ONLINE", 2.0f, m_texLaser,
+        const char* onlineText = "SYSTEM ONLINE";
+        DrawMatrixString(CenteredTextX(onlineText, 2.0f, screenCenterX), (float)SCREEN_HEIGHT * 0.80f, onlineText, 2.0f, m_texLaser,
             { 0.55f, 1.0f, 0.75f, 1.0f });
     }
     else if (m_menuPhase == MainMenuPhase::Menu)
