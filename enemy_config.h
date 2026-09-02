@@ -12,10 +12,9 @@ namespace EnemyConfig
 {
     // ========================================================================
     // 1. TEST VE DEBUG AYARLARI (TEST & DEBUG SETTINGS)
-    // ========================================================================
-    // Test Modu: Oyunu baslatir baslatmaz Sektor 4 Boss'unu (Kitsune Yokai) spawn eder.
+    // ==================================================================    // Test Modu: Oyunu baslatir baslatmaz Sektor 3 Boss'unu (Torii Yokai) spawn eder.
     inline constexpr bool TEST_SPAWN_BOSS2_AT_START = true;
-    inline constexpr int  TEST_BOSS_TYPE             = 4;     // 1: Boss 1, 2: Boss 2, 3: Boss 3, 4: Final Boss (Kitsune Yokai)
+    inline constexpr int  TEST_BOSS_TYPE             = 3;     // 1: Boss 1, 2: Boss 2, 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
 
     // ========================================================================
     // 2. NORMAL DÜŞMAN DRONE AYARLARI (ENEMY DRONE 1 CONFIG)
@@ -108,7 +107,7 @@ namespace EnemyConfig
     inline constexpr Boss2Stats Boss2{};
 
     // ========================================================================
-    // 5. BOSS 3 AYARLARI (BOSS 3 - TORII YOKAI / PURPLE DEATH BEAM)
+    // 5. BOSS 3 AYARLARI (BOSS 3 - TORII YOKAI / MULTI-PHASE LASER BOSS)
     // ========================================================================
     struct Boss3Stats
     {
@@ -120,21 +119,30 @@ namespace EnemyConfig
         float hoverY                = 150.0f;   // Tepedeki Y yüksekliği
         int   collisionDamage       = 1;        // Çarpışma hasarı
 
-        // Saldırı Döngüsü ve Faz Süreleri
-        float glideDuration             = 3.5f;     // Tepede sağa-sola süzülme süresi
+        // Faz 1: Aimed Sweeping Laser (HP > 70%)
+        float glideDuration             = 3.0f;     // Tepede sağa-sola süzülme süresi
         float aimTrackingDuration       = 1.4f;     // Oyuncuyu hedefleme çizgisiyle takip etme süresi
         float aimTrackingTurnSpeed      = 2.2f;     // Hedefleme aşamasındaki takip hızı (rad/s)
-        float aimLockPauseDuration      = 0.60f;    // KİLİTLENME VE KAÇIŞ ANI: Çizgi parlar ve sabitlenir, oyuncuya kaçma fırsatı verir (saniye)
+        float aimLockPauseDuration      = 0.75f;    // KİLİTLENME VE KAÇIŞ ANI: Çizgi sabitlenir, kaçış fırsatı verir (saniye)
         float laserFiringDuration       = 2.2f;     // Toplam mor lazer ateşleme süresi
-        float laserActiveTrackingDuration= 1.3f;    // Lazer ateşlendikten sonra oyuncuyu takip etme süresi (bu süreden sonra lazer sabitlenir, oyuncu köşeye sıkışmaz)
-        float laserTrackingTurnSpeed    = 0.52f;    // Gecikmeli ağır takip hızı: Oyuncu hareket ettiği sürece kaçabilir (rad/s)
-        float laserCooldownDuration     = 1.4f;     // Saldırı bittikten sonraki dinlenme süresi
+        float laserActiveTrackingDuration= 1.2f;    // Lazer ateşlendikten sonraki ağır takip süresi
+        float laserTrackingTurnSpeed    = 0.52f;    // Gecikmeli ağır takip hızı (rad/s)
+
+        // Faz 2: Dikey Lazer Duvarı & Güvenli Aralık (HP 40% - 70%)
+        float curtainWarningDuration    = 1.3f;     // Uyarılı uyarı süresi (yeşil güvenli koridor gösterilir)
+        float curtainFiringDuration     = 2.2f;     // Dikey lazer sütunlarının ateşlenme süresi
+
+        // Faz 3: Çapraz Izgara Lazer Matrisi (HP < 40%)
+        float gridWarningDuration       = 1.4f;     // Izgara uyarı süresi (yeşil güvenli hücre gösterilir)
+        float gridFiringDuration        = 2.4f;     // Çapraz lazer ızgarasının ateşlenme süresi
+
+        float laserCooldownDuration     = 1.2f;     // Fazlar arası dinlenme süresi
 
         // Lazer Parametreleri
         float laserDamageInterval       = 0.25f;    // Lazere temas edilince hasar yeme sıklığı (saniye)
         float laserBeamWidth            = 24.0f;    // Lazer ışınının çarpışma kalınlığı (piksel)
-        float laserMinAngle             = 0.35f;    // Lazerin minimum açısı (~20 derece - ekranın üstüne çıkmasını engeller)
-        float laserMaxAngle             = 2.79f;    // Lazerin maksimum açısı (~160 derece - ekranın üstüne çıkmasını engeller)
+        float laserMinAngle             = 0.35f;    // Lazerin minimum açısı (~20 derece)
+        float laserMaxAngle             = 2.79f;    // Lazerin maksimum açısı (~160 derece)
 
         // Boss 3 Ödül / Drop Miktarları
         int   reishiDropCount           = 45;

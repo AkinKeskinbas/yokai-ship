@@ -132,9 +132,13 @@ enum class BossPhase
     Cooldown,       // Brief recovery before resuming Patrol
     GlideTop,       // Boss 3: Glides horizontally across top of screen
     MoveToCenter,   // Boss 3: Moves smoothly to top center
-    LaserTrack,     // Boss 3: Purple aim sight actively tracks player's position
-    LaserLock,      // Boss 3: Aim sight turns solid & locks in place, giving player dodge/escape window
-    LaserFire       // Boss 3: Massive purple death beam fires along locked vector, slowly tracking player
+    LaserTrack,     // Boss 3 Phase 1: Aim sight actively tracks player's position
+    LaserLock,      // Boss 3 Phase 1: Aim sight locks in place, giving player dodge/escape window
+    LaserFire,      // Boss 3 Phase 1: Massive purple death beam fires along locked vector
+    CurtainWarning, // Boss 3 Phase 2: Vertical laser curtain telegraph (safe gap highlighted in green)
+    CurtainFire,    // Boss 3 Phase 2: Vertical laser curtain active firing
+    GridWarning,    // Boss 3 Phase 3: Crosshatch laser matrix telegraph (safe pocket highlighted in green)
+    GridFire        // Boss 3 Phase 3: Crosshatch laser matrix active firing
 };
 
 // Final Boss (Boss 4 - Kitsune Yokai) Phase State Machine
@@ -256,10 +260,12 @@ struct Asteroid
     float bossSpiralFireTimer = 0.0f;
     DirectX::XMFLOAT2 bossTargetPos{ 800.0f, 220.0f };
 
-    // Boss 3 Purple Sweeping Laser state
+    // Boss 3 Multi-Phase Purple Sweeping Laser state & Safe Zones
     float bossLaserAngle = 1.5707963f; // PI / 2 (pointing straight down initially)
     float bossLaserSweepFreq = 1.0f;
     float bossLaserDamageTimer = 0.0f;
+    int boss3SafeGapIndex = 2;
+    DirectX::XMFLOAT2 boss3SafePos{ 800.0f, 600.0f };
 
     // Final Boss (Boss 4) State Machine & Timers
     FinalBossPhase finalPhase = FinalBossPhase::OrbShield;

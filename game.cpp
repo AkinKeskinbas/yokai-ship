@@ -1763,11 +1763,11 @@ void Game::UpdateGameplay(float deltaTime)
                     }
                 }
             }
-            // Boss 3 (Torii Yokai) Custom AI & Sweeping Purple Death Laser Logic
+            // Boss 3 (Torii Yokai) Multi-Phase Death Laser Logic
             else if (it->isBoss && it->bossType == 3)
             {
-                // Central eye emitter position
                 DirectX::XMFLOAT2 eyePos = { it->position.x, it->position.y + 10.0f };
+                float hpPct = std::clamp(it->hp / it->maxHp, 0.0f, 1.0f);
 
                 if (it->bossPhase == BossPhase::Enter)
                 {
@@ -1826,14 +1826,38 @@ void Game::UpdateGameplay(float deltaTime)
                     {
                         it->position.x = (float)SCREEN_WIDTH * 0.5f;
                         it->position.y = EnemyConfig::Boss3.hoverY;
-                        it->bossPhase = BossPhase::LaserTrack;
-                        it->bossPhaseTimer = EnemyConfig::Boss3.aimTrackingDuration;
-                        it->bossLaserAngle = 1.5707963f; // 90 deg, pointing straight down
+
+                        // Branch attack type based on HP percentage
+                        if (hpPct > 0.70f)
+                        {
+                            // Phase 1: Aimed Sweeping Laser
+                            it->bossPhase = BossPhase::LaserTrack;
+                            it->bossPhaseTimer = EnemyConfig::Boss3.aimTrackingDuration;
+                            it->bossLaserAngle = 1.5707963f; // 90 deg, pointing straight down
+                        }
+                        else if (hpPct > 0.40f)
+                        {
+                            // Phase 2: Vertical Laser Curtain Wall with Safe Gap Column
+                            it->bossPhase = BossPhase::CurtainWarning;
+                            it->bossPhaseTimer = EnemyConfig::Boss3.curtainWarningDuration;
+                            it->boss3SafeGapIndex = RandomInt(1, 5); // 7 columns (0 to 6), index 1..5 as safe gap
+                            float colSpacing = (float)SCREEN_WIDTH / 7.0f;
+                            it->boss3SafePos = { colSpacing * ((float)it->boss3SafeGapIndex + 0.5f), (float)SCREEN_HEIGHT * 0.65f };
+                        }
+                        else
+                        {
+                            // Phase 3: Crosshatch Grid Laser Matrix (Izgara Lazer)
+                            it->bossPhase = BossPhase::GridWarning;
+                            it->bossPhaseTimer = EnemyConfig::Boss3.gridWarningDuration;
+                            float safeX = std::clamp(m_playerPos.x, 300.0f, (float)SCREEN_WIDTH - 300.0f);
+                            float safeY = std::clamp(m_playerPos.y, 450.0f, (float)SCREEN_HEIGHT - 220.0f);
+                            it->boss3SafePos = { safeX, safeY };
+                        }
                     }
                 }
+                // PHASE 1: Aimed Sweeping Beam
                 else if (it->bossPhase == BossPhase::LaserTrack)
                 {
-                    // 1. AIM TRACKING: Boss actively tracks the player's position with aiming sight
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 4.0f) * 2.0f;
 
@@ -1858,7 +1882,6 @@ void Game::UpdateGameplay(float deltaTime)
                     it->bossPhaseTimer -= deltaTime;
                     if (it->bossPhaseTimer <= 0.0f)
                     {
-                        // Transition to LOCK phase: Freeze the aim in place!
                         it->bossPhase = BossPhase::LaserLock;
                         it->bossPhaseTimer = EnemyConfig::Boss3.aimLockPauseDuration;
                         TriggerCameraShake(0.18f, 3.5f);
@@ -1866,15 +1889,12 @@ void Game::UpdateGameplay(float deltaTime)
                 }
                 else if (it->bossPhase == BossPhase::LaserLock)
                 {
-                    // 2. AIM LOCK / TELEGRAPH ESCAPE WINDOW:
-                    // Aim is locked firmly in place (stops tracking player) to give player clear time to dodge/dash!
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 8.0f) * 2.0f;
 
                     it->bossPhaseTimer -= deltaTime;
                     if (it->bossPhaseTimer <= 0.0f)
                     {
-                        // Transition to MASSIVE FIRE phase!
                         it->bossPhase = BossPhase::LaserFire;
                         it->bossPhaseTimer = EnemyConfig::Boss3.laserFiringDuration;
                         it->bossLaserDamageTimer = 0.0f;
@@ -1884,11 +1904,9 @@ void Game::UpdateGameplay(float deltaTime)
                 }
                 else if (it->bossPhase == BossPhase::LaserFire)
                 {
-                    // 3. MASSIVE BEAM DISCHARGE & DELAYED HEAVY TRACKING:
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
                     it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 12.0f) * 2.0f;
 
-                    // Only track during the first laserActiveTrackingDuration (e.g. 1.3s), then hold angle fixed
                     float timeElapsedInFire = EnemyConfig::Boss3.laserFiringDuration - it->bossPhaseTimer;
                     if (timeElapsedInFire <= EnemyConfig::Boss3.laserActiveTrackingDuration)
                     {
@@ -1911,10 +1929,9 @@ void Game::UpdateGameplay(float deltaTime)
                         it->bossLaserAngle = std::clamp(it->bossLaserAngle, EnemyConfig::Boss3.laserMinAngle, EnemyConfig::Boss3.laserMaxAngle);
                     }
 
-                    // Continuous beam camera rumble
                     TriggerCameraShake(0.08f, 3.2f);
 
-                    // Player Hitbox vs Sweeping Purple Laser Line Segment
+                    // Player Hitbox vs Sweeping Beam Line
                     DirectX::XMFLOAT2 beamDir = { cosf(it->bossLaserAngle), sinf(it->bossLaserAngle) };
                     float beamLen = 1400.0f;
                     DirectX::XMFLOAT2 beamEnd = { eyePos.x + beamDir.x * beamLen, eyePos.y + beamDir.y * beamLen };
@@ -1940,6 +1957,127 @@ void Game::UpdateGameplay(float deltaTime)
                             it->bossLaserDamageTimer = EnemyConfig::Boss3.laserDamageInterval;
                             DamagePlayer(1);
                             TriggerCameraShake(0.20f, 6.0f);
+                        }
+                    }
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::Cooldown;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.laserCooldownDuration;
+                    }
+                }
+                // PHASE 2: Vertical Laser Curtain Wall
+                else if (it->bossPhase == BossPhase::CurtainWarning)
+                {
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 6.0f) * 2.0f;
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::CurtainFire;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.curtainFiringDuration;
+                        it->bossLaserDamageTimer = 0.0f;
+                        TriggerCameraShake(0.35f, 6.0f);
+                        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::CurtainFire)
+                {
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 10.0f) * 2.0f;
+
+                    TriggerCameraShake(0.08f, 3.0f);
+
+                    // Check player collision vs non-safe columns
+                    float colSpacing = (float)SCREEN_WIDTH / 7.0f;
+                    for (int c = 0; c < 7; ++c)
+                    {
+                        if (c == it->boss3SafeGapIndex) continue; // Safe gap!
+
+                        float colX = colSpacing * ((float)c + 0.5f);
+                        if (fabsf(m_playerPos.x - colX) < (18.0f + m_playerHitboxRadius))
+                        {
+                            it->bossLaserDamageTimer -= deltaTime;
+                            if (it->bossLaserDamageTimer <= 0.0f)
+                            {
+                                it->bossLaserDamageTimer = EnemyConfig::Boss3.laserDamageInterval;
+                                DamagePlayer(1);
+                                TriggerCameraShake(0.20f, 6.0f);
+                            }
+                        }
+                    }
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::Cooldown;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.laserCooldownDuration;
+                    }
+                }
+                // PHASE 3: Crosshatch Grid Laser Matrix (Izgara Lazer)
+                else if (it->bossPhase == BossPhase::GridWarning)
+                {
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 6.0f) * 2.0f;
+
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->bossPhase = BossPhase::GridFire;
+                        it->bossPhaseTimer = EnemyConfig::Boss3.gridFiringDuration;
+                        it->bossLaserDamageTimer = 0.0f;
+                        TriggerCameraShake(0.40f, 7.0f);
+                        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::GridFire)
+                {
+                    it->position.x = (float)SCREEN_WIDTH * 0.5f;
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 12.0f) * 2.0f;
+
+                    TriggerCameraShake(0.09f, 3.5f);
+
+                    // Check if player is inside the safe pocket
+                    float sDx = m_playerPos.x - it->boss3SafePos.x;
+                    float sDy = m_playerPos.y - it->boss3SafePos.y;
+                    float distToSafe = sqrtf(sDx * sDx + sDy * sDy);
+
+                    if (distToSafe > 80.0f) // Outside safe pocket! Check collision with grid lines
+                    {
+                        bool hitGrid = false;
+                        float gridSpacing = 420.0f;
+
+                        // 5 Left-to-Right diagonal lines: x - y = C1[k]
+                        for (int k = -2; k <= 2; ++k)
+                        {
+                            float C1 = (float)k * gridSpacing;
+                            float d1 = fabsf(m_playerPos.x - m_playerPos.y - C1) / 1.4142f;
+                            if (d1 < (14.0f + m_playerHitboxRadius)) { hitGrid = true; break; }
+                        }
+
+                        // 5 Right-to-Left diagonal lines: x + y - midSum = C2[k]
+                        if (!hitGrid)
+                        {
+                            float midSum = (float)SCREEN_WIDTH * 0.5f + (float)SCREEN_HEIGHT * 0.5f;
+                            for (int k = -2; k <= 2; ++k)
+                            {
+                                float C2 = midSum + (float)k * gridSpacing;
+                                float d2 = fabsf(m_playerPos.x + m_playerPos.y - C2) / 1.4142f;
+                                if (d2 < (14.0f + m_playerHitboxRadius)) { hitGrid = true; break; }
+                            }
+                        }
+
+                        if (hitGrid)
+                        {
+                            it->bossLaserDamageTimer -= deltaTime;
+                            if (it->bossLaserDamageTimer <= 0.0f)
+                            {
+                                it->bossLaserDamageTimer = EnemyConfig::Boss3.laserDamageInterval;
+                                DamagePlayer(1);
+                                TriggerCameraShake(0.20f, 6.0f);
+                            }
                         }
                     }
 
@@ -3826,6 +3964,110 @@ void Game::DrawGameplay()
                         float hitH = 72.0f;
                         Sprite_Draw(m_texLaserHit, endX - hitW * 0.5f, endY - hitH * 0.5f, hitW, hitH,
                             hitCol * fW, hitRow * fH, fW, fH, 0.0f, { 1.0f, 1.0f }, { 0.95f, 0.50f, 1.0f, 0.9f });
+                    }
+                }
+                // Phase 2: CurtainWarning (Telegraph) & CurtainFire (Active Vertical Laser Wall)
+                else if (ast.bossPhase == BossPhase::CurtainWarning || ast.bossPhase == BossPhase::CurtainFire)
+                {
+                    float colSpacing = (float)SCREEN_WIDTH / 7.0f;
+                    float warnPulse = sinf(m_totalTime * 20.0f) * 0.25f + 0.75f;
+
+                    for (int c = 0; c < 7; ++c)
+                    {
+                        float colX = colSpacing * ((float)c + 0.5f);
+
+                        if (c == ast.boss3SafeGapIndex)
+                        {
+                            // SAFE GAP CORRIDOR: Glowing Green Guide Lines & Reticle
+                            Sprite_DrawLine(colX - 45.0f + camX, 0.0f, colX - 45.0f + camX, (float)SCREEN_HEIGHT, 2.0f, { 0.20f, 1.0f, 0.50f, 0.75f });
+                            Sprite_DrawLine(colX + 45.0f + camX, 0.0f, colX + 45.0f + camX, (float)SCREEN_HEIGHT, 2.0f, { 0.20f, 1.0f, 0.50f, 0.75f });
+
+                            float pulseCircle = sinf(m_totalTime * 8.0f) * 0.20f + 0.80f;
+                            Sprite_DrawCircle(colX + camX, ast.boss3SafePos.y + camY, 45.0f, 2.5f, { 0.30f, 1.0f, 0.60f, pulseCircle }, 24);
+                            DrawMatrixString(colX + camX - 40.0f, ast.boss3SafePos.y + camY - 10.0f, "[ SAFE ZONE ]", 1.4f, m_texLaser, { 0.40f, 1.0f, 0.70f, 1.0f });
+                        }
+                        else
+                        {
+                            if (ast.bossPhase == BossPhase::CurtainWarning)
+                            {
+                                // Warning Column Guide Ray
+                                Sprite_DrawRect(colX - 16.0f + camX, 0.0f, 32.0f, (float)SCREEN_HEIGHT, { 1.0f, 0.15f, 0.35f, 0.25f * warnPulse });
+                                Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 2.0f, { 1.0f, 0.30f, 0.40f, 0.80f * warnPulse });
+                                DrawMatrixString(colX + camX - 6.0f, 25.0f, "!", 2.2f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
+                            }
+                            else
+                            {
+                                // Full Active Vertical Laser Beam Pillar
+                                Sprite_DrawRect(colX - 18.0f + camX, 0.0f, 36.0f, (float)SCREEN_HEIGHT, { 0.75f, 0.12f, 0.98f, 0.35f });
+                                Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 20.0f, { 0.90f, 0.30f, 1.0f, 0.75f });
+                                Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 4.0f,  { 1.0f, 1.0f, 1.0f, 1.0f });
+                            }
+                        }
+                    }
+
+                    if (ast.bossPhase == BossPhase::CurtainWarning)
+                    {
+                        DrawMatrixString(ast.position.x + camX - 120.0f, ast.position.y + camY - h * 0.5f - 38.0f,
+                            "! LAZER DUVARI : GUVENLI ARALIGA KAC !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
+                    }
+                }
+                // Phase 3: GridWarning (Telegraph) & GridFire (Active Crosshatch Matrix)
+                else if (ast.bossPhase == BossPhase::GridWarning || ast.bossPhase == BossPhase::GridFire)
+                {
+                    float warnPulse = sinf(m_totalTime * 22.0f) * 0.25f + 0.75f;
+                    float gridSpacing = 420.0f;
+                    float safeX = ast.boss3SafePos.x;
+                    float safeY = ast.boss3SafePos.y;
+
+                    // 5 Left-to-Right diagonal lines: x - y = C1[k]
+                    for (int k = -2; k <= 2; ++k)
+                    {
+                        float C1 = (float)k * gridSpacing;
+                        float x1 = 0.0f; float y1 = -C1;
+                        float x2 = (float)SCREEN_WIDTH; float y2 = (float)SCREEN_WIDTH - C1;
+
+                        if (ast.bossPhase == BossPhase::GridWarning)
+                        {
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 2.0f, { 1.0f, 0.25f, 0.40f, 0.70f * warnPulse });
+                        }
+                        else
+                        {
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 18.0f, { 0.75f, 0.12f, 0.98f, 0.35f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 10.0f, { 0.90f, 0.35f, 1.0f, 0.70f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 3.0f,  { 1.0f, 1.0f, 1.0f, 1.0f });
+                        }
+                    }
+
+                    // 5 Right-to-Left diagonal lines: x + y = C2[k]
+                    float midSum = (float)SCREEN_WIDTH * 0.5f + (float)SCREEN_HEIGHT * 0.5f;
+                    for (int k = -2; k <= 2; ++k)
+                    {
+                        float C2 = midSum + (float)k * gridSpacing;
+                        float x1 = 0.0f; float y1 = C2;
+                        float x2 = (float)SCREEN_WIDTH; float y2 = C2 - (float)SCREEN_WIDTH;
+
+                        if (ast.bossPhase == BossPhase::GridWarning)
+                        {
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 2.0f, { 1.0f, 0.25f, 0.40f, 0.70f * warnPulse });
+                        }
+                        else
+                        {
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 18.0f, { 0.75f, 0.12f, 0.98f, 0.35f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 10.0f, { 0.90f, 0.35f, 1.0f, 0.70f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 3.0f,  { 1.0f, 1.0f, 1.0f, 1.0f });
+                        }
+                    }
+
+                    // Draw Safe Zone Holographic Reticle inside the Grid Cell
+                    float pulseCircle = sinf(m_totalTime * 9.0f) * 0.20f + 0.80f;
+                    Sprite_DrawCircle(safeX + camX, safeY + camY, 70.0f, 3.0f, { 0.25f, 1.0f, 0.55f, pulseCircle }, 32);
+                    Sprite_DrawCircle(safeX + camX, safeY + camY, 35.0f, 1.8f, { 0.40f, 1.0f, 0.70f, 0.60f }, 24);
+                    DrawMatrixString(safeX + camX - 40.0f, safeY + camY - 10.0f, "[ SAFE ZONE ]", 1.4f, m_texLaser, { 0.40f, 1.0f, 0.70f, 1.0f });
+
+                    if (ast.bossPhase == BossPhase::GridWarning)
+                    {
+                        DrawMatrixString(ast.position.x + camX - 120.0f, ast.position.y + camY - h * 0.5f - 38.0f,
+                            "! IZGARA MATRIS : GUVENLI BOLGEYE GIR !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
                     }
                 }
             }
