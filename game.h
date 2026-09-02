@@ -265,6 +265,7 @@ struct Asteroid
     float bossLaserSweepFreq = 1.0f;
     float bossLaserDamageTimer = 0.0f;
     int boss3SafeGapIndex = 2;
+    int boss3SafeGapIndex2 = 7;
     DirectX::XMFLOAT2 boss3SafePos{ 800.0f, 600.0f };
 
     // Final Boss (Boss 4) State Machine & Timers

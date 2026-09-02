@@ -1837,21 +1837,17 @@ void Game::UpdateGameplay(float deltaTime)
                         }
                         else if (hpPct > 0.40f)
                         {
-                            // Phase 2: Vertical Laser Curtain Wall with Safe Gap Column
+                            // Phase 2: High-Density Vertical Laser Curtain Wall with 2 Gap Openings
                             it->bossPhase = BossPhase::CurtainWarning;
                             it->bossPhaseTimer = EnemyConfig::Boss3.curtainWarningDuration;
-                            it->boss3SafeGapIndex = RandomInt(1, 5); // 7 columns (0 to 6), index 1..5 as safe gap
-                            float colSpacing = (float)SCREEN_WIDTH / 7.0f;
-                            it->boss3SafePos = { colSpacing * ((float)it->boss3SafeGapIndex + 0.5f), (float)SCREEN_HEIGHT * 0.65f };
+                            it->boss3SafeGapIndex = RandomInt(2, 4); // Safe gap 1
+                            it->boss3SafeGapIndex2 = RandomInt(6, 8); // Safe gap 2
                         }
                         else
                         {
-                            // Phase 3: Crosshatch Grid Laser Matrix (Izgara Lazer)
+                            // Phase 3: High-Density Crosshatch Grid Laser Matrix (Izgara Lazer)
                             it->bossPhase = BossPhase::GridWarning;
                             it->bossPhaseTimer = EnemyConfig::Boss3.gridWarningDuration;
-                            float safeX = std::clamp(m_playerPos.x, 300.0f, (float)SCREEN_WIDTH - 300.0f);
-                            float safeY = std::clamp(m_playerPos.y, 450.0f, (float)SCREEN_HEIGHT - 220.0f);
-                            it->boss3SafePos = { safeX, safeY };
                         }
                     }
                 }
@@ -1967,7 +1963,7 @@ void Game::UpdateGameplay(float deltaTime)
                         it->bossPhaseTimer = EnemyConfig::Boss3.laserCooldownDuration;
                     }
                 }
-                // PHASE 2: Vertical Laser Curtain Wall
+                // PHASE 2: High-Density Vertical Laser Curtain Wall
                 else if (it->bossPhase == BossPhase::CurtainWarning)
                 {
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
@@ -1990,14 +1986,14 @@ void Game::UpdateGameplay(float deltaTime)
 
                     TriggerCameraShake(0.08f, 3.0f);
 
-                    // Check player collision vs non-safe columns
-                    float colSpacing = (float)SCREEN_WIDTH / 7.0f;
-                    for (int c = 0; c < 7; ++c)
+                    // Check player collision vs non-safe columns (10 columns across screen)
+                    float colSpacing = (float)SCREEN_WIDTH / 10.0f;
+                    for (int c = 0; c < 10; ++c)
                     {
-                        if (c == it->boss3SafeGapIndex) continue; // Safe gap!
+                        if (c == it->boss3SafeGapIndex || c == it->boss3SafeGapIndex2) continue; // Natural empty gap!
 
                         float colX = colSpacing * ((float)c + 0.5f);
-                        if (fabsf(m_playerPos.x - colX) < (18.0f + m_playerHitboxRadius))
+                        if (fabsf(m_playerPos.x - colX) < (16.0f + m_playerHitboxRadius))
                         {
                             it->bossLaserDamageTimer -= deltaTime;
                             if (it->bossLaserDamageTimer <= 0.0f)
@@ -2016,7 +2012,7 @@ void Game::UpdateGameplay(float deltaTime)
                         it->bossPhaseTimer = EnemyConfig::Boss3.laserCooldownDuration;
                     }
                 }
-                // PHASE 3: Crosshatch Grid Laser Matrix (Izgara Lazer)
+                // PHASE 3: High-Density Crosshatch Grid Laser Matrix (Izgara Lazer)
                 else if (it->bossPhase == BossPhase::GridWarning)
                 {
                     it->position.x = (float)SCREEN_WIDTH * 0.5f;
@@ -2039,45 +2035,38 @@ void Game::UpdateGameplay(float deltaTime)
 
                     TriggerCameraShake(0.09f, 3.5f);
 
-                    // Check if player is inside the safe pocket
-                    float sDx = m_playerPos.x - it->boss3SafePos.x;
-                    float sDy = m_playerPos.y - it->boss3SafePos.y;
-                    float distToSafe = sqrtf(sDx * sDx + sDy * sDy);
+                    // Check collision with dense ızgara laser grid lines (k in -4..4)
+                    bool hitGrid = false;
+                    float gridSpacing = 240.0f;
 
-                    if (distToSafe > 80.0f) // Outside safe pocket! Check collision with grid lines
+                    // 9 Left-to-Right diagonal lines: x - y = C1[k]
+                    for (int k = -4; k <= 4; ++k)
                     {
-                        bool hitGrid = false;
-                        float gridSpacing = 420.0f;
+                        float C1 = (float)k * gridSpacing;
+                        float d1 = fabsf(m_playerPos.x - m_playerPos.y - C1) / 1.4142f;
+                        if (d1 < (12.0f + m_playerHitboxRadius)) { hitGrid = true; break; }
+                    }
 
-                        // 5 Left-to-Right diagonal lines: x - y = C1[k]
-                        for (int k = -2; k <= 2; ++k)
+                    // 9 Right-to-Left diagonal lines: x + y - midSum = C2[k]
+                    if (!hitGrid)
+                    {
+                        float midSum = (float)SCREEN_WIDTH * 0.5f + (float)SCREEN_HEIGHT * 0.5f;
+                        for (int k = -4; k <= 4; ++k)
                         {
-                            float C1 = (float)k * gridSpacing;
-                            float d1 = fabsf(m_playerPos.x - m_playerPos.y - C1) / 1.4142f;
-                            if (d1 < (14.0f + m_playerHitboxRadius)) { hitGrid = true; break; }
+                            float C2 = midSum + (float)k * gridSpacing;
+                            float d2 = fabsf(m_playerPos.x + m_playerPos.y - C2) / 1.4142f;
+                            if (d2 < (12.0f + m_playerHitboxRadius)) { hitGrid = true; break; }
                         }
+                    }
 
-                        // 5 Right-to-Left diagonal lines: x + y - midSum = C2[k]
-                        if (!hitGrid)
+                    if (hitGrid)
+                    {
+                        it->bossLaserDamageTimer -= deltaTime;
+                        if (it->bossLaserDamageTimer <= 0.0f)
                         {
-                            float midSum = (float)SCREEN_WIDTH * 0.5f + (float)SCREEN_HEIGHT * 0.5f;
-                            for (int k = -2; k <= 2; ++k)
-                            {
-                                float C2 = midSum + (float)k * gridSpacing;
-                                float d2 = fabsf(m_playerPos.x + m_playerPos.y - C2) / 1.4142f;
-                                if (d2 < (14.0f + m_playerHitboxRadius)) { hitGrid = true; break; }
-                            }
-                        }
-
-                        if (hitGrid)
-                        {
-                            it->bossLaserDamageTimer -= deltaTime;
-                            if (it->bossLaserDamageTimer <= 0.0f)
-                            {
-                                it->bossLaserDamageTimer = EnemyConfig::Boss3.laserDamageInterval;
-                                DamagePlayer(1);
-                                TriggerCameraShake(0.20f, 6.0f);
-                            }
+                            it->bossLaserDamageTimer = EnemyConfig::Boss3.laserDamageInterval;
+                            DamagePlayer(1);
+                            TriggerCameraShake(0.20f, 6.0f);
                         }
                     }
 
@@ -3966,61 +3955,48 @@ void Game::DrawGameplay()
                             hitCol * fW, hitRow * fH, fW, fH, 0.0f, { 1.0f, 1.0f }, { 0.95f, 0.50f, 1.0f, 0.9f });
                     }
                 }
-                // Phase 2: CurtainWarning (Telegraph) & CurtainFire (Active Vertical Laser Wall)
+                // Phase 2: CurtainWarning (Telegraph) & CurtainFire (High-Density Vertical Laser Wall)
                 else if (ast.bossPhase == BossPhase::CurtainWarning || ast.bossPhase == BossPhase::CurtainFire)
                 {
-                    float colSpacing = (float)SCREEN_WIDTH / 7.0f;
+                    float colSpacing = (float)SCREEN_WIDTH / 10.0f;
                     float warnPulse = sinf(m_totalTime * 20.0f) * 0.25f + 0.75f;
 
-                    for (int c = 0; c < 7; ++c)
+                    for (int c = 0; c < 10; ++c)
                     {
+                        if (c == ast.boss3SafeGapIndex || c == ast.boss3SafeGapIndex2) continue; // Natural empty gap!
+
                         float colX = colSpacing * ((float)c + 0.5f);
 
-                        if (c == ast.boss3SafeGapIndex)
+                        if (ast.bossPhase == BossPhase::CurtainWarning)
                         {
-                            // SAFE GAP CORRIDOR: Glowing Green Guide Lines & Reticle
-                            Sprite_DrawLine(colX - 45.0f + camX, 0.0f, colX - 45.0f + camX, (float)SCREEN_HEIGHT, 2.0f, { 0.20f, 1.0f, 0.50f, 0.75f });
-                            Sprite_DrawLine(colX + 45.0f + camX, 0.0f, colX + 45.0f + camX, (float)SCREEN_HEIGHT, 2.0f, { 0.20f, 1.0f, 0.50f, 0.75f });
-
-                            float pulseCircle = sinf(m_totalTime * 8.0f) * 0.20f + 0.80f;
-                            Sprite_DrawCircle(colX + camX, ast.boss3SafePos.y + camY, 45.0f, 2.5f, { 0.30f, 1.0f, 0.60f, pulseCircle }, 24);
-                            DrawMatrixString(colX + camX - 40.0f, ast.boss3SafePos.y + camY - 10.0f, "[ SAFE ZONE ]", 1.4f, m_texLaser, { 0.40f, 1.0f, 0.70f, 1.0f });
+                            // Warning Column Guide Ray
+                            Sprite_DrawRect(colX - 14.0f + camX, 0.0f, 28.0f, (float)SCREEN_HEIGHT, { 1.0f, 0.15f, 0.35f, 0.25f * warnPulse });
+                            Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 2.0f, { 1.0f, 0.30f, 0.40f, 0.80f * warnPulse });
+                            DrawMatrixString(colX + camX - 6.0f, 25.0f, "!", 2.0f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
                         }
                         else
                         {
-                            if (ast.bossPhase == BossPhase::CurtainWarning)
-                            {
-                                // Warning Column Guide Ray
-                                Sprite_DrawRect(colX - 16.0f + camX, 0.0f, 32.0f, (float)SCREEN_HEIGHT, { 1.0f, 0.15f, 0.35f, 0.25f * warnPulse });
-                                Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 2.0f, { 1.0f, 0.30f, 0.40f, 0.80f * warnPulse });
-                                DrawMatrixString(colX + camX - 6.0f, 25.0f, "!", 2.2f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
-                            }
-                            else
-                            {
-                                // Full Active Vertical Laser Beam Pillar
-                                Sprite_DrawRect(colX - 18.0f + camX, 0.0f, 36.0f, (float)SCREEN_HEIGHT, { 0.75f, 0.12f, 0.98f, 0.35f });
-                                Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 20.0f, { 0.90f, 0.30f, 1.0f, 0.75f });
-                                Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 4.0f,  { 1.0f, 1.0f, 1.0f, 1.0f });
-                            }
+                            // Full Active Vertical Laser Beam Pillar
+                            Sprite_DrawRect(colX - 16.0f + camX, 0.0f, 32.0f, (float)SCREEN_HEIGHT, { 0.75f, 0.12f, 0.98f, 0.35f });
+                            Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 18.0f, { 0.90f, 0.30f, 1.0f, 0.75f });
+                            Sprite_DrawLine(colX + camX, 0.0f, colX + camX, (float)SCREEN_HEIGHT, 3.5f,  { 1.0f, 1.0f, 1.0f, 1.0f });
                         }
                     }
 
                     if (ast.bossPhase == BossPhase::CurtainWarning)
                     {
                         DrawMatrixString(ast.position.x + camX - 120.0f, ast.position.y + camY - h * 0.5f - 38.0f,
-                            "! LAZER DUVARI : GUVENLI ARALIGA KAC !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
+                            "! LAZER DUVARI UYARISI !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
                     }
                 }
-                // Phase 3: GridWarning (Telegraph) & GridFire (Active Crosshatch Matrix)
+                // Phase 3: GridWarning (Telegraph) & GridFire (High-Density Crosshatch Matrix)
                 else if (ast.bossPhase == BossPhase::GridWarning || ast.bossPhase == BossPhase::GridFire)
                 {
                     float warnPulse = sinf(m_totalTime * 22.0f) * 0.25f + 0.75f;
-                    float gridSpacing = 420.0f;
-                    float safeX = ast.boss3SafePos.x;
-                    float safeY = ast.boss3SafePos.y;
+                    float gridSpacing = 240.0f;
 
-                    // 5 Left-to-Right diagonal lines: x - y = C1[k]
-                    for (int k = -2; k <= 2; ++k)
+                    // 9 Left-to-Right diagonal lines: x - y = C1[k]
+                    for (int k = -4; k <= 4; ++k)
                     {
                         float C1 = (float)k * gridSpacing;
                         float x1 = 0.0f; float y1 = -C1;
@@ -4032,15 +4008,15 @@ void Game::DrawGameplay()
                         }
                         else
                         {
-                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 18.0f, { 0.75f, 0.12f, 0.98f, 0.35f });
-                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 10.0f, { 0.90f, 0.35f, 1.0f, 0.70f });
-                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 3.0f,  { 1.0f, 1.0f, 1.0f, 1.0f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 16.0f, { 0.75f, 0.12f, 0.98f, 0.35f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 8.0f,  { 0.90f, 0.35f, 1.0f, 0.70f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 2.5f,  { 1.0f, 1.0f, 1.0f, 1.0f });
                         }
                     }
 
-                    // 5 Right-to-Left diagonal lines: x + y = C2[k]
+                    // 9 Right-to-Left diagonal lines: x + y = C2[k]
                     float midSum = (float)SCREEN_WIDTH * 0.5f + (float)SCREEN_HEIGHT * 0.5f;
-                    for (int k = -2; k <= 2; ++k)
+                    for (int k = -4; k <= 4; ++k)
                     {
                         float C2 = midSum + (float)k * gridSpacing;
                         float x1 = 0.0f; float y1 = C2;
@@ -4052,22 +4028,16 @@ void Game::DrawGameplay()
                         }
                         else
                         {
-                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 18.0f, { 0.75f, 0.12f, 0.98f, 0.35f });
-                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 10.0f, { 0.90f, 0.35f, 1.0f, 0.70f });
-                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 3.0f,  { 1.0f, 1.0f, 1.0f, 1.0f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 16.0f, { 0.75f, 0.12f, 0.98f, 0.35f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 8.0f,  { 0.90f, 0.35f, 1.0f, 0.70f });
+                            Sprite_DrawLine(x1 + camX, y1 + camY, x2 + camX, y2 + camY, 2.5f,  { 1.0f, 1.0f, 1.0f, 1.0f });
                         }
                     }
-
-                    // Draw Safe Zone Holographic Reticle inside the Grid Cell
-                    float pulseCircle = sinf(m_totalTime * 9.0f) * 0.20f + 0.80f;
-                    Sprite_DrawCircle(safeX + camX, safeY + camY, 70.0f, 3.0f, { 0.25f, 1.0f, 0.55f, pulseCircle }, 32);
-                    Sprite_DrawCircle(safeX + camX, safeY + camY, 35.0f, 1.8f, { 0.40f, 1.0f, 0.70f, 0.60f }, 24);
-                    DrawMatrixString(safeX + camX - 40.0f, safeY + camY - 10.0f, "[ SAFE ZONE ]", 1.4f, m_texLaser, { 0.40f, 1.0f, 0.70f, 1.0f });
 
                     if (ast.bossPhase == BossPhase::GridWarning)
                     {
                         DrawMatrixString(ast.position.x + camX - 120.0f, ast.position.y + camY - h * 0.5f - 38.0f,
-                            "! IZGARA MATRIS : GUVENLI BOLGEYE GIR !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
+                            "! IZGARA MATRIS UYARISI !", 1.4f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
                     }
                 }
             }
