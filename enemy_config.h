@@ -13,7 +13,7 @@ namespace EnemyConfig
     // ========================================================================
     // 1. TEST VE DEBUG AYARLARI (TEST & DEBUG SETTINGS)
     // ==================================================================    // Test Modu: Oyunu baslatir baslatmaz Sektor 3 Boss'unu (Torii Yokai) spawn eder.
-    inline constexpr bool TEST_SPAWN_BOSS2_AT_START = true;
+    inline constexpr bool TEST_SPAWN_BOSS2_AT_START = false;
     inline constexpr int  TEST_BOSS_TYPE             = 3;     // 1: Boss 1, 2: Boss 2, 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
 
     // ========================================================================

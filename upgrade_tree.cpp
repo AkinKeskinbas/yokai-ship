@@ -2148,7 +2148,8 @@ void UpgradeTree::DrawTreeNodes()
 {
     for (const auto& node : m_nodes)
     {
-        float baseSize = node.isCenterHub ? 52.0f : (node.isCapstone ? 46.0f : m_nodeSize);
+        bool isSkillNode = (node.icon == NodeIconType::SkillEmp || node.icon == NodeIconType::SkillDash || node.icon == NodeIconType::SkillOvercharge);
+        float baseSize = node.isCenterHub ? 52.0f : (isSkillNode ? 58.0f : (node.isCapstone ? 46.0f : m_nodeSize));
         float scale = 1.0f + node.hoverProgress * 0.22f;
         if (node.unlockPulseTimer > 0.0f)
         {
@@ -2167,7 +2168,29 @@ void UpgradeTree::DrawTreeNodes()
         DirectX::XMFLOAT4 borderCol;
         DirectX::XMFLOAT4 iconCol;
 
-        if (node.isCenterHub)
+        if (isSkillNode)
+        {
+            float pulse = sinf(m_globalTime * 7.0f) * 0.20f + 0.80f;
+            if (unlocked)
+            {
+                bgCol = DirectX::XMFLOAT4(0.10f, 0.40f, 0.45f, 0.98f);
+                borderCol = DirectX::XMFLOAT4(0.40f, 1.0f, 0.90f, 1.0f);
+                iconCol = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+            }
+            else if (hasPrereq)
+            {
+                bgCol = DirectX::XMFLOAT4(0.20f, 0.15f, 0.35f, 0.95f);
+                borderCol = DirectX::XMFLOAT4(1.0f, 0.82f, 0.20f, pulse);
+                iconCol = DirectX::XMFLOAT4(1.0f, 0.92f, 0.40f, 1.0f);
+            }
+            else
+            {
+                bgCol = DirectX::XMFLOAT4(0.12f, 0.10f, 0.18f, 0.90f);
+                borderCol = DirectX::XMFLOAT4(0.35f, 0.70f, 1.0f, 0.75f * pulse);
+                iconCol = DirectX::XMFLOAT4(0.55f, 0.75f, 1.0f, 0.75f);
+            }
+        }
+        else if (node.isCenterHub)
         {
             bgCol = DirectX::XMFLOAT4(0.96f, 0.92f, 0.82f, 1.0f);
             borderCol = DirectX::XMFLOAT4(1.0f, 0.85f, 0.40f, 1.0f);
@@ -2255,22 +2278,29 @@ void UpgradeTree::DrawTreeNodes()
 
         // Draw Node Background & Border
         Sprite_DrawRect(x, y, w, h, bgCol);
-        float borderThickness = (node.hoverProgress > 0.1f || node.isCapstone) ? 2.5f : 1.5f;
+        float borderThickness = (node.hoverProgress > 0.1f || node.isCapstone || isSkillNode) ? 2.5f : 1.5f;
         Sprite_DrawRectBorder(x, y, w, h, borderThickness, borderCol);
 
-        if (node.hoverProgress > 0.05f || (node.isCapstone && unlocked))
+        if (node.hoverProgress > 0.05f || (node.isCapstone && unlocked) || isSkillNode)
         {
             DirectX::XMFLOAT4 haloCol = borderCol;
-            haloCol.w = std::max(0.25f, node.hoverProgress * 0.55f);
-            Sprite_DrawRectBorder(x - 3.0f, y - 3.0f, w + 6.0f, h + 6.0f, 1.5f, haloCol);
+            haloCol.w = std::max(0.35f, node.hoverProgress * 0.55f);
+            Sprite_DrawRectBorder(x - 4.0f, y - 4.0f, w + 8.0f, h + 8.0f, 1.8f, haloCol);
         }
 
-        // Draw Node Glyph / Icon
-        NodeIconType iconType = (node.isSealed && !node.isSealBroken) ? NodeIconType::Lock : (hasPrereq ? node.icon : NodeIconType::Question);
-        DrawNodeGlyph(iconType, node.screenPos.x, node.screenPos.y, w * 0.60f, iconCol);
+        // Draw Node Glyph / Icon (Skills ALWAYS render their icon image regardless of prereq state!)
+        NodeIconType iconType = (node.isSealed && !node.isSealBroken) ? NodeIconType::Lock : (isSkillNode ? node.icon : (hasPrereq ? node.icon : NodeIconType::Question));
+        DrawNodeGlyph(iconType, node.screenPos.x, node.screenPos.y, isSkillNode ? w * 0.78f : w * 0.60f, iconCol);
+
+        if (isSkillNode)
+        {
+            // Keybinding / Skill Label Badge below node
+            const char* skillTag = (node.icon == NodeIconType::SkillDash) ? "SPACE DASH" : (node.icon == NodeIconType::SkillEmp ? "Q EMP WAVE" : "E OVERCHARGE");
+            DrawTextMatrix(node.screenPos.x - 32.0f, y + h + 4.0f, skillTag, 1.3f, borderCol);
+        }
 
         // Draw Level Pips
-        if (!node.isCenterHub && node.maxLevel > 1)
+        if (!node.isCenterHub && !isSkillNode && node.maxLevel > 1)
         {
             float pipW = 4.0f;
             float pipH = 3.0f;
