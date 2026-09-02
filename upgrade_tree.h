@@ -175,6 +175,10 @@ public:
     int GetCurrentSectorIndex() const { return m_currentSectorIndex; }
     void SetCurrentSectorIndex(int idx) { m_currentSectorIndex = idx; }
 
+    // Holographic entrance slide (Main Menu -> Upgrade Tree transition). 0 = settled in place;
+    // a positive value shifts the whole tree that many pixels to the right (off-screen at large values).
+    void SetIntroOffsetX(float offsetX) { m_introOffsetX = offsetX; }
+
 private:
     void SetupNodes();
     void UpdateLayout();
@@ -201,6 +205,7 @@ private:
     float m_targetZoom = 0.95f;
     DirectX::XMFLOAT2 m_panOffset{ 0.0f, 0.0f };
     DirectX::XMFLOAT2 m_targetPanOffset{ 0.0f, 0.0f };
+    float m_introOffsetX = 0.0f;
     bool m_isPanning = false;
     int m_lastMouseX = 0;
     int m_lastMouseY = 0;

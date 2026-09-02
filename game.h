@@ -10,6 +10,7 @@
 // Playable Scenes
 enum class GameScene
 {
+    MainMenu,
     Gameplay,
     UpgradePlaceholder
 };
@@ -18,11 +19,35 @@ enum class GameScene
 enum class RunState
 {
     Active,
+    ShipEntering,    // Ship flies in from below screen and decelerates before handing control to the player
     PlayerDying,     // Player died: dramatic pause, multi-explosion cascade, camera shake
     EnergyDepleted,  // Energy/Time ran out: dialog popup ("Bugünlük bu kadar yeter enerjimiz bitti kaptan")
     BossDefeated,    // Boss defeated: massive explosion chain, super vacuum collects resources
     RunEnded,        // Summary card is displayed, awaiting player action
     TransitionToUpgrade
+};
+
+// Main Menu / Title Screen State Machine
+enum class MainMenuPhase
+{
+    Boot,       // "INITIALIZE SYSTEM" terminal prompt, waiting for any key
+    BootGlitch, // Brief scanline/glitch HUD activation animation
+    Menu,       // Interactive holographic menu around the ship
+    Launching   // START EXPEDITION selected: ship accelerates out of the title scene
+};
+
+// A lightweight decorative background object for the title screen's idle world
+// (distant asteroid, drifting mineral, or a rare mysterious silhouette). Purely visual --
+// no HP/collision, unlike the full Asteroid/Enemy gameplay entities.
+struct MenuAmbientObject
+{
+    DirectX::XMFLOAT2 position{ 0.0f, 0.0f };
+    DirectX::XMFLOAT2 velocity{ 0.0f, 0.0f };
+    float scale = 1.0f;
+    float rotation = 0.0f;
+    float rotationSpeed = 0.0f;
+    float alpha = 1.0f;
+    int kind = 0; // 0: distant asteroid, 1: drifting mineral, 2: mysterious silhouette
 };
 
 #include "upgrade_tree.h"
@@ -493,8 +518,19 @@ private:
     // Game loops & state management
     void UpdateGameplay(float deltaTime);
     void UpdateUpgrade(float deltaTime);
+    void UpdateMainMenu(float deltaTime);
     void DrawGameplay();
     void DrawUpgrade();
+    void DrawMainMenu();
+
+    // Main Menu / Title Screen Helpers
+    void InitMainMenu();                    // Reset boot/menu state when (re)entering the title screen
+    void UpdateMenuAmbientWorld(float deltaTime); // Parallax stars & rare idle-world background events
+    void DrawAmbientShip(float shipCenterX, float shipCenterY, float engineGlow, bool allowMouseTilt);
+    void ConfirmMenuSelection(int index);   // Handles activating the currently selected menu option
+    void DrawMainMenuOptions(float camX, float camY);
+    bool AnyKeyPressed() const;
+    void StartExpeditionQuickLaunch();      // Shared by the menu's launch cinematic and the Upgrade Tree's own Launch button
     void DrawSkillBar();
     void DrawRunSummary();
     void DrawChestModal();
@@ -530,9 +566,28 @@ private:
     HWND m_hWnd;
     
     // Scene management
-    GameScene m_currentScene = GameScene::UpgradePlaceholder;
+    GameScene m_currentScene = GameScene::MainMenu;
     RunState m_runState = RunState::Active;
-    
+
+    // Main Menu / Title Screen state
+    MainMenuPhase m_menuPhase = MainMenuPhase::Boot;
+    float m_menuPhaseTimer = 0.0f;
+    float m_menuBootPulseTimer = 0.0f;
+    int m_menuSelectedIndex = 0;
+    float m_menuSelectPulse = 0.0f;         // Brief glow pulse when selection changes
+    float m_menuEngineGlow = 0.45f;         // Idle engine glow, ramps up during Launching
+    DirectX::XMFLOAT2 m_menuShakeOffset{ 0.0f, 0.0f };
+    float m_menuShakeTimer = 0.0f;
+    float m_menuShakeMaxDuration = 0.0f;
+    float m_menuShakeIntensity = 0.0f;
+    float m_menuScannerPulseTimer = 0.0f;   // Idle-world: ship scanner pulse ring
+    float m_menuScannerPulseCooldown = 6.0f;
+    float m_menuAmbientSpawnCooldown = 4.0f;
+    std::vector<MenuAmbientObject> m_menuAmbient; // Distant idle-world asteroids/minerals/silhouettes
+    std::vector<DirectX::XMFLOAT3> m_menuStars;   // Parallax stars (x, y, brightness)
+    std::string m_menuPlaceholderMessage;         // Brief "module offline" note for Collection/Settings
+    float m_menuPlaceholderTimer = 0.0f;
+
     // Background Procedural Shader
     BackgroundRenderer m_bgRenderer;
 
@@ -572,6 +627,8 @@ private:
     // Player state & Upgrade Tree
     DirectX::XMFLOAT2 m_playerPos{ 800.0f, 450.0f };
     DirectX::XMFLOAT2 m_playerVelocity{ 0.0f, 0.0f };
+    DirectX::XMFLOAT2 m_shipEntryTargetPos{ 800.0f, 450.0f }; // Where the ship decelerates to on gameplay entry
+    float m_shipEntryElapsed = 0.0f;
     float m_playerRotation = 0.0f;
     float m_playerTargetRotation = 0.0f;
     float m_totalTime = 0.0f;
@@ -604,6 +661,10 @@ private:
     PlayerResources m_resources;
     RunStats m_runStats;
     bool m_superVacuumActive = false;
+
+    // Upgrade Tree entrance (holographic slide-in from the Main Menu)
+    float m_upgradeIntroTimer = 1.0f;    // 0 = ship centered & tree off-screen right, 1 = settled
+    bool m_upgradeEnteredFromMenu = false;
 
     // Camera Shake
     float m_cameraShakeTimer = 0.0f;

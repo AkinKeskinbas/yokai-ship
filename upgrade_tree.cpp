@@ -1352,7 +1352,7 @@ void UpgradeTree::UpdateLayout()
 
     for (auto& node : m_nodes)
     {
-        node.screenPos.x = m_treeCenter.x + m_panOffset.x + node.gridPos.x * m_nodeSpacingX;
+        node.screenPos.x = m_treeCenter.x + m_panOffset.x + m_introOffsetX + node.gridPos.x * m_nodeSpacingX;
         node.screenPos.y = m_treeCenter.y + m_panOffset.y + node.gridPos.y * m_nodeSpacingY;
     }
 }

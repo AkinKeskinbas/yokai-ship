@@ -291,7 +291,18 @@ bool Game::Initialize(HWND hWnd)
     m_calamity.level = 1;
     m_calamity.current = 0.0f;
     m_calamity.required = 100.0f;
-    
+
+    if (EnemyConfig::TEST_SPAWN_BOSS2_AT_START)
+    {
+        // Developer test mode: skip the title screen entirely and drop straight into gameplay.
+        m_currentScene = GameScene::Gameplay;
+    }
+    else
+    {
+        m_currentScene = GameScene::MainMenu;
+        InitMainMenu();
+    }
+
     ResetRun();
 
     return true;
@@ -344,7 +355,14 @@ void Game::ResetRun()
         m_resources.key = 9999;
     }
 
-    m_playerPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.5f);
+    // Gameplay entry sequence: outside of test mode, the ship enters from below the screen and
+    // smoothly decelerates into its normal starting position (see the ShipEntering RunState in
+    // UpdateGameplay) before spawning or control begins. Test mode skips straight to Active.
+    bool useShipEntrySequence = !EnemyConfig::TEST_SPAWN_BOSS2_AT_START;
+    m_shipEntryTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.5f);
+    m_playerPos = useShipEntrySequence
+        ? DirectX::XMFLOAT2(m_shipEntryTargetPos.x, (float)SCREEN_HEIGHT + 90.0f)
+        : m_shipEntryTargetPos;
     m_playerVelocity = DirectX::XMFLOAT2(0.0f, 0.0f);
     m_playerRotation = 0.0f;
     m_playerTargetRotation = 0.0f;
@@ -387,7 +405,8 @@ void Game::ResetRun()
     m_enemySpawnTimer = 0.0f;
     m_laserFireCooldown = 0.0f;
     m_laserDamageTickTimer = 0.0f;
-    m_runState = RunState::Active;
+    m_runState = useShipEntrySequence ? RunState::ShipEntering : RunState::Active;
+    m_shipEntryElapsed = 0.0f;
     m_deathSequenceTimer = 0.0f;
     m_bossDeathTimer = 0.0f;
     m_explosionStaggerTimer = 0.0f;
@@ -542,6 +561,11 @@ void Game::Update(float deltaTime)
     {
         if (InputKeyboard_IsTrigger(KK_U) || InputKeyboard_IsTrigger(KK_TAB))
         {
+            // Mid-run pause to check the tree, not the Main Menu's holographic entrance --
+            // make sure the tree/ship are in their settled state, not a stale slide-in offset.
+            m_upgradeEnteredFromMenu = false;
+            m_upgradeIntroTimer = 1.0f;
+            m_upgradeTree.SetIntroOffsetX(0.0f);
             m_currentScene = GameScene::UpgradePlaceholder;
             return;
         }
@@ -549,7 +573,17 @@ void Game::Update(float deltaTime)
     }
     else if (m_currentScene == GameScene::UpgradePlaceholder)
     {
+        // Reached from the Main Menu (not a mid-run pause) -- ESC returns to the title screen.
+        if (m_upgradeEnteredFromMenu && InputKeyboard_IsTrigger(KK_ESCAPE))
+        {
+            m_currentScene = GameScene::MainMenu;
+            return;
+        }
         UpdateUpgrade(deltaTime);
+    }
+    else if (m_currentScene == GameScene::MainMenu)
+    {
+        UpdateMainMenu(deltaTime);
     }
 }
 
@@ -724,6 +758,35 @@ void Game::UpdateGameplay(float deltaTime)
     // Update Procedural Background Shader with dynamic boss status
     bool isBossAlive = m_bossTriggered && !m_bossVictory;
     m_bgRenderer.Update(deltaTime, isBossAlive);
+
+    // =========================================================================
+    // 🚀 GAMEPLAY ENTRY SEQUENCE: ship flies in from below screen, decelerates into its
+    // starting position, settles briefly, THEN control (and spawning) begins.
+    // =========================================================================
+    if (m_runState == RunState::ShipEntering)
+    {
+        m_shipEntryElapsed += deltaTime;
+        const float flightDuration = 0.85f;
+        const float settleDuration = 0.30f;
+
+        if (m_shipEntryElapsed < flightDuration)
+        {
+            float t = std::clamp(m_shipEntryElapsed / flightDuration, 0.0f, 1.0f);
+            float eased = 1.0f - powf(1.0f - t, 3.0f); // Ease-out cubic: fast then decelerating
+            float startY = (float)SCREEN_HEIGHT + 90.0f;
+            m_playerPos.x = m_shipEntryTargetPos.x;
+            m_playerPos.y = startY + (m_shipEntryTargetPos.y - startY) * eased;
+        }
+        else
+        {
+            m_playerPos = m_shipEntryTargetPos; // Settle exactly in place
+            if (m_shipEntryElapsed >= flightDuration + settleDuration)
+            {
+                m_runState = RunState::Active; // Hand control to the player; spawning begins now
+            }
+        }
+        return;
+    }
 
     if (m_runState == RunState::Active)
     {
@@ -2842,19 +2905,41 @@ void Game::UpdateGameplay(float deltaTime)
     m_totalTime += deltaTime;
 }
 
+// Shared by the Upgrade Tree's own [LAUNCH] button and the Main Menu's START EXPEDITION --
+// both start a fresh run using whatever sector is currently selected in the tree.
+void Game::StartExpeditionQuickLaunch()
+{
+    m_calamity.level = m_upgradeTree.GetCurrentSectorIndex();
+    m_upgradeTree.ApplyStats(m_stats);
+    ResetRun();
+    m_currentScene = GameScene::Gameplay;
+    m_upgradeEnteredFromMenu = false;
+}
+
 void Game::UpdateUpgrade(float deltaTime)
 {
     m_bgRenderer.Update(deltaTime, false);
+
+    // Holographic entrance from the Main Menu: ship eases toward its dock position on the left
+    // while the Upgrade Tree slides in from the right. Reused systems only -- just easing the
+    // existing ship position and the tree's own pan offset, no new rendering path.
+    if (m_upgradeEnteredFromMenu && m_upgradeIntroTimer < 1.0f)
+    {
+        m_upgradeIntroTimer = std::min(1.0f, m_upgradeIntroTimer + deltaTime / 0.55f);
+        float eased = 1.0f - powf(1.0f - m_upgradeIntroTimer, 3.0f);
+        float startX = (float)SCREEN_WIDTH * 0.5f;
+        float dockX = (float)SCREEN_WIDTH * 0.16f;
+        m_playerPos.x = startX + (dockX - startX) * eased;
+        m_playerPos.y = (float)SCREEN_HEIGHT * 0.5f;
+        m_upgradeTree.SetIntroOffsetX((1.0f - eased) * 650.0f);
+    }
 
     bool startGame = false;
     m_upgradeTree.Update(deltaTime, m_stats, m_resources, startGame, m_upgradeTree.GetCurrentSectorIndex());
 
     if (startGame)
     {
-        m_calamity.level = m_upgradeTree.GetCurrentSectorIndex();
-        m_upgradeTree.ApplyStats(m_stats);
-        ResetRun();
-        m_currentScene = GameScene::Gameplay;
+        StartExpeditionQuickLaunch();
     }
 }
 
@@ -3795,6 +3880,10 @@ void Game::Draw()
     {
         DrawUpgrade();
     }
+    else if (m_currentScene == GameScene::MainMenu)
+    {
+        DrawMainMenu();
+    }
 }
 
 void Game::DrawSkillBar()
@@ -4507,6 +4596,7 @@ void Game::DrawGameplay()
 
     // 6. Draw Player spaceship
     bool isShipVisible = (m_playerHealth > 0 && m_runState == RunState::Active) ||
+                         m_runState == RunState::ShipEntering ||
                          (m_runState == RunState::BossDefeated) ||
                          (m_runState == RunState::PlayerDying && m_deathSequenceTimer > 2.05f);
 
@@ -4527,7 +4617,20 @@ void Game::DrawGameplay()
             int phase = (int)(m_invincibleTimer * 16.0f) % 2;
             shipColor = (phase == 0) ? DirectX::XMFLOAT4(1.0f, 0.35f, 0.35f, 0.45f) : DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 0.95f);
         }
-        
+
+        // Entry sequence: bright engine flame trailing below the ship as it decelerates in
+        if (m_runState == RunState::ShipEntering)
+        {
+            float flamePulse = sinf(m_totalTime * 24.0f) * 0.15f + 0.85f;
+            float flameLen = 34.0f * flamePulse;
+            Sprite_DrawCircle(m_playerPos.x + camX, m_playerPos.y + camY + h * 0.42f, 10.0f * flamePulse, 0.0f,
+                { 0.55f, 0.85f, 1.0f, 0.85f }, 16);
+            Sprite_DrawLine(m_playerPos.x + camX, m_playerPos.y + camY + h * 0.30f,
+                             m_playerPos.x + camX, m_playerPos.y + camY + h * 0.30f + flameLen,
+                             6.0f, { 0.45f, 0.80f, 1.0f, 0.55f });
+            bob = 0.0f; // No idle bob while actively decelerating into position
+        }
+
         Sprite_Draw(m_texSpaceship, m_playerPos.x + camX - w * 0.5f, m_playerPos.y + camY - h * 0.5f + bob, w, h,
             0, 0, Texture_GetWidth(m_texSpaceship), Texture_GetHeight(m_texSpaceship),
             m_playerRotation, { 1.0f, 1.0f }, shipColor);
@@ -5132,7 +5235,475 @@ void Game::DrawEnergyDepletedModal()
 void Game::DrawUpgrade()
 {
     m_bgRenderer.Render(0.0f, 0.0f);
+
+    // Ambient ship dock, only when this screen was reached via the Main Menu's holographic
+    // entrance (a mid-run TAB pause keeps the classic tree-only view untouched).
+    if (m_upgradeEnteredFromMenu)
+    {
+        DrawAmbientShip(m_playerPos.x, m_playerPos.y, 0.35f, false);
+    }
+
     m_upgradeTree.Draw(m_resources, m_upgradeTree.GetCurrentSectorIndex());
+}
+
+// ============================================================================
+// MAIN MENU / TITLE SCREEN
+// Reuses the existing background shader, player ship asset & rendering, VFX-style
+// draw primitives, and input systems -- no separate render/player/input architecture.
+// ============================================================================
+
+void Game::InitMainMenu()
+{
+    m_menuPhase = MainMenuPhase::Boot;
+    m_menuPhaseTimer = 0.0f;
+    m_menuBootPulseTimer = 0.0f;
+    m_menuSelectedIndex = 0;
+    m_menuSelectPulse = 0.0f;
+    m_menuEngineGlow = 0.45f;
+    m_menuShakeOffset = { 0.0f, 0.0f };
+    m_menuShakeTimer = 0.0f;
+    m_menuScannerPulseTimer = 0.0f;
+    m_menuScannerPulseCooldown = RandomFloat(4.0f, 7.0f);
+    m_menuAmbientSpawnCooldown = RandomFloat(3.0f, 6.0f);
+    m_menuAmbient.clear();
+    m_menuPlaceholderTimer = 0.0f;
+
+    m_playerPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.62f);
+    m_playerRotation = 0.0f;
+    m_totalTime = 0.0f;
+
+    if (m_menuStars.empty())
+    {
+        for (int i = 0; i < 90; ++i)
+        {
+            m_menuStars.push_back(DirectX::XMFLOAT3(
+                RandomFloat(0.0f, (float)SCREEN_WIDTH),
+                RandomFloat(0.0f, (float)SCREEN_HEIGHT),
+                RandomFloat(0.25f, 1.0f)));
+        }
+    }
+}
+
+bool Game::AnyKeyPressed() const
+{
+    for (int k = 0x08; k <= 0xFE; ++k)
+    {
+        if (InputKeyboard_IsTrigger((Keyboard_Keys)k)) return true;
+    }
+    return InputMouse_IsTrigger(MOUSE_BUTTON_LEFT);
+}
+
+void Game::UpdateMenuAmbientWorld(float deltaTime)
+{
+    // Rare idle-world events: a distant asteroid, a drifting mineral, or (very rarely) a
+    // mysterious silhouette crossing far in the background. Kept sparse and subtle.
+    m_menuAmbientSpawnCooldown -= deltaTime;
+    if (m_menuAmbientSpawnCooldown <= 0.0f)
+    {
+        float roll = RandomFloat(0.0f, 1.0f);
+        bool fromLeft = RandomFloat(0.0f, 1.0f) < 0.5f;
+        MenuAmbientObject obj;
+
+        if (roll < 0.06f)
+        {
+            // Rare mysterious silhouette -- huge, faint, slow, far back
+            obj.kind = 2;
+            obj.scale = RandomFloat(0.55f, 0.85f);
+            obj.alpha = 0.0f; // Fades in via the update loop below
+            obj.position = { fromLeft ? -260.0f : (float)SCREEN_WIDTH + 260.0f, RandomFloat(60.0f, 220.0f) };
+            obj.velocity = { (fromLeft ? 1.0f : -1.0f) * RandomFloat(10.0f, 16.0f), 0.0f };
+            m_menuAmbientSpawnCooldown = RandomFloat(35.0f, 55.0f);
+        }
+        else if (roll < 0.55f)
+        {
+            // Distant asteroid drifting across
+            obj.kind = 0;
+            obj.scale = RandomFloat(0.05f, 0.11f);
+            obj.alpha = RandomFloat(0.35f, 0.60f);
+            obj.position = { fromLeft ? -80.0f : (float)SCREEN_WIDTH + 80.0f, RandomFloat(80.0f, (float)SCREEN_HEIGHT * 0.55f) };
+            obj.velocity = { (fromLeft ? 1.0f : -1.0f) * RandomFloat(18.0f, 32.0f), RandomFloat(-4.0f, 4.0f) };
+            obj.rotationSpeed = RandomFloat(-0.3f, 0.3f);
+            m_menuAmbientSpawnCooldown = RandomFloat(9.0f, 16.0f);
+        }
+        else
+        {
+            // Small mineral passing by
+            obj.kind = 1;
+            obj.scale = 0.06f;
+            obj.alpha = RandomFloat(0.55f, 0.85f);
+            obj.position = { fromLeft ? -40.0f : (float)SCREEN_WIDTH + 40.0f, RandomFloat(150.0f, (float)SCREEN_HEIGHT * 0.65f) };
+            obj.velocity = { (fromLeft ? 1.0f : -1.0f) * RandomFloat(45.0f, 75.0f), RandomFloat(-8.0f, 8.0f) };
+            obj.rotationSpeed = RandomFloat(-1.5f, 1.5f);
+            m_menuAmbientSpawnCooldown = RandomFloat(7.0f, 13.0f);
+        }
+
+        m_menuAmbient.push_back(obj);
+    }
+
+    for (auto it = m_menuAmbient.begin(); it != m_menuAmbient.end(); )
+    {
+        it->position.x += it->velocity.x * deltaTime;
+        it->position.y += it->velocity.y * deltaTime;
+        it->rotation += it->rotationSpeed * deltaTime;
+
+        if (it->kind == 2)
+        {
+            it->alpha += (0.14f - it->alpha) * 1.2f * deltaTime; // Slow fade-in, holds faint
+        }
+
+        if (it->position.x < -320.0f || it->position.x > (float)SCREEN_WIDTH + 320.0f)
+        {
+            it = m_menuAmbient.erase(it);
+            continue;
+        }
+        ++it;
+    }
+
+    // Ship scanner pulse: a small ring that occasionally sweeps out from the ship
+    if (m_menuScannerPulseTimer > 0.0f)
+    {
+        m_menuScannerPulseTimer -= deltaTime;
+    }
+    else
+    {
+        m_menuScannerPulseCooldown -= deltaTime;
+        if (m_menuScannerPulseCooldown <= 0.0f)
+        {
+            m_menuScannerPulseTimer = 0.9f;
+            m_menuScannerPulseCooldown = RandomFloat(8.0f, 14.0f);
+        }
+    }
+}
+
+// Draws the reusable player ship sprite as an ambient/idle presence (title screen, or docked
+// beside the Upgrade Tree) -- same asset & draw call as gameplay, just non-interactive here.
+void Game::DrawAmbientShip(float shipCenterX, float shipCenterY, float engineGlow, bool allowMouseTilt)
+{
+    if (m_texSpaceship == -1) return;
+
+    float w = 64.0f;
+    float h = 96.0f;
+    float bob = sinf(m_totalTime * 1.4f) * 5.0f;
+
+    float tiltShiftX = 0.0f;
+    float tiltRot = 0.0f;
+    if (allowMouseTilt)
+    {
+        float mouseX = (float)InputMouse_GetX();
+        float mouseY = (float)InputMouse_GetY();
+        float dx = mouseX - shipCenterX;
+        float dy = mouseY - shipCenterY;
+        float dist = sqrtf(dx * dx + dy * dy);
+        if (dist > 1.0f)
+        {
+            tiltShiftX = std::clamp(dx / dist, -1.0f, 1.0f) * 7.0f;
+            tiltRot = std::clamp(dx / 420.0f, -0.16f, 0.16f);
+        }
+    }
+
+    float drawX = shipCenterX + tiltShiftX;
+    float drawY = shipCenterY + bob;
+
+    // Soft engine glow beneath the ship (approximated with thick concentric rings, the same
+    // idiom already used for the shield bubble elsewhere).
+    float glowPulse = sinf(m_totalTime * 5.0f) * 0.15f + 0.85f;
+    float glowRad = (11.0f + engineGlow * 17.0f) * glowPulse;
+    float glowY = drawY + h * 0.42f;
+    Sprite_DrawCircle(drawX, glowY, glowRad, glowRad * 0.95f, { 0.35f, 0.70f, 1.0f, 0.16f + engineGlow * 0.22f }, 18);
+    Sprite_DrawCircle(drawX, glowY, glowRad * 0.55f, glowRad * 0.55f, { 0.60f, 0.88f, 1.0f, 0.28f + engineGlow * 0.30f }, 16);
+    Sprite_DrawCircle(drawX, glowY, glowRad * 0.22f, glowRad * 0.22f, { 0.90f, 0.98f, 1.0f, 0.55f + engineGlow * 0.35f }, 10);
+
+    Sprite_Draw(m_texSpaceship, drawX - w * 0.5f, drawY - h * 0.5f, w, h,
+        0, 0, Texture_GetWidth(m_texSpaceship), Texture_GetHeight(m_texSpaceship),
+        tiltRot, { 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f });
+}
+
+void Game::ConfirmMenuSelection(int index)
+{
+    if (m_soundClick != -1) PlayAudio(m_soundClick);
+
+    switch (index)
+    {
+    case 0: // START EXPEDITION
+        m_menuPhase = MainMenuPhase::Launching;
+        m_menuPhaseTimer = 0.0f;
+        m_menuShakeTimer = 0.5f;
+        m_menuShakeMaxDuration = 0.5f;
+        m_menuShakeIntensity = 5.0f;
+        break;
+    case 1: // UPGRADE TREE -- ship docks left, tree slides in from the right
+        m_upgradeEnteredFromMenu = true;
+        m_upgradeIntroTimer = 0.0f;
+        m_playerPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.5f);
+        m_upgradeTree.SetIntroOffsetX(650.0f);
+        m_currentScene = GameScene::UpgradePlaceholder;
+        break;
+    case 2: // COLLECTION
+    case 3: // SETTINGS
+        m_menuPlaceholderMessage = "MODULE OFFLINE -- AVAILABLE IN A FUTURE UPDATE";
+        m_menuPlaceholderTimer = 2.2f;
+        break;
+    case 4: // EXIT
+        PostMessage(m_hWnd, WM_CLOSE, 0, 0);
+        break;
+    default:
+        break;
+    }
+}
+
+void Game::UpdateMainMenu(float deltaTime)
+{
+    m_totalTime += deltaTime;
+    m_bgRenderer.Update(deltaTime, m_menuPhase == MainMenuPhase::Launching); // Reuse boss-intensity for the launch kick
+    UpdateMenuAmbientWorld(deltaTime);
+
+    if (m_menuPlaceholderTimer > 0.0f)
+    {
+        m_menuPlaceholderTimer -= deltaTime;
+    }
+
+    if (m_menuSelectPulse > 0.0f)
+    {
+        m_menuSelectPulse -= deltaTime;
+    }
+
+    // Camera kick decay (same shake-offset idiom used by gameplay's TriggerCameraShake)
+    if (m_menuShakeTimer > 0.0f)
+    {
+        m_menuShakeTimer -= deltaTime;
+        float progress = (m_menuShakeMaxDuration > 0.0001f) ? std::max(0.0f, m_menuShakeTimer / m_menuShakeMaxDuration) : 0.0f;
+        float curIntensity = m_menuShakeIntensity * progress;
+        m_menuShakeOffset.x = RandomFloat(-curIntensity, curIntensity);
+        m_menuShakeOffset.y = RandomFloat(-curIntensity, curIntensity);
+        if (m_menuShakeTimer <= 0.0f) m_menuShakeOffset = { 0.0f, 0.0f };
+    }
+
+    if (m_menuPhase == MainMenuPhase::Boot)
+    {
+        m_menuBootPulseTimer += deltaTime;
+        if (AnyKeyPressed())
+        {
+            m_menuPhase = MainMenuPhase::BootGlitch;
+            m_menuPhaseTimer = 0.0f;
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
+        }
+    }
+    else if (m_menuPhase == MainMenuPhase::BootGlitch)
+    {
+        m_menuPhaseTimer += deltaTime;
+        if (m_menuPhaseTimer >= 0.40f)
+        {
+            m_menuPhase = MainMenuPhase::Menu;
+            m_menuPhaseTimer = 0.0f;
+            m_menuSelectedIndex = 0;
+            m_menuSelectPulse = 0.35f;
+        }
+    }
+    else if (m_menuPhase == MainMenuPhase::Menu)
+    {
+        const int kMenuCount = 5;
+
+        if (InputKeyboard_IsTrigger(KK_DOWN) || InputKeyboard_IsTrigger(KK_S))
+        {
+            m_menuSelectedIndex = (m_menuSelectedIndex + 1) % kMenuCount;
+            m_menuSelectPulse = 0.35f;
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
+        }
+        else if (InputKeyboard_IsTrigger(KK_UP) || InputKeyboard_IsTrigger(KK_W))
+        {
+            m_menuSelectedIndex = (m_menuSelectedIndex - 1 + kMenuCount) % kMenuCount;
+            m_menuSelectPulse = 0.35f;
+            if (m_soundClick != -1) PlayAudio(m_soundClick);
+        }
+
+        // Mouse hover selection
+        float mouseX = (float)InputMouse_GetX();
+        float mouseY = (float)InputMouse_GetY();
+        float menuX = (float)SCREEN_WIDTH * 0.68f;
+        float menuStartY = (float)SCREEN_HEIGHT * 0.30f;
+        float itemH = 54.0f;
+        for (int i = 0; i < kMenuCount; ++i)
+        {
+            float iy = menuStartY + (float)i * itemH;
+            if (mouseX >= menuX - 40.0f && mouseX <= menuX + 340.0f && mouseY >= iy && mouseY <= iy + itemH - 8.0f)
+            {
+                if (m_menuSelectedIndex != i)
+                {
+                    m_menuSelectedIndex = i;
+                    m_menuSelectPulse = 0.35f;
+                }
+            }
+        }
+
+        if (InputKeyboard_IsTrigger(KK_ENTER) || InputKeyboard_IsTrigger(KK_SPACE) || InputMouse_IsTrigger(MOUSE_BUTTON_LEFT))
+        {
+            ConfirmMenuSelection(m_menuSelectedIndex);
+        }
+    }
+    else if (m_menuPhase == MainMenuPhase::Launching)
+    {
+        m_menuPhaseTimer += deltaTime;
+        m_menuEngineGlow = std::min(1.0f, m_menuEngineGlow + deltaTime * 1.8f);
+
+        // Accelerate upward and out of the title scene
+        float accel = 900.0f * std::min(1.0f, m_menuPhaseTimer / 0.6f);
+        m_playerPos.y -= accel * deltaTime;
+
+        if (m_playerPos.y < -180.0f || m_menuPhaseTimer > 1.3f)
+        {
+            StartExpeditionQuickLaunch();
+        }
+    }
+}
+
+void Game::DrawMainMenuOptions(float camX, float camY)
+{
+    static const char* kMenuLabels[5] = {
+        "START EXPEDITION", "UPGRADE TREE", "COLLECTION", "SETTINGS", "EXIT"
+    };
+
+    float menuX = (float)SCREEN_WIDTH * 0.68f;
+    float menuStartY = (float)SCREEN_HEIGHT * 0.30f;
+    float itemH = 54.0f;
+
+    for (int i = 0; i < 5; ++i)
+    {
+        float iy = menuStartY + (float)i * itemH;
+        bool isSelected = (i == m_menuSelectedIndex);
+        float pulse = isSelected ? (sinf(m_totalTime * 7.0f) * 0.2f + 0.8f) : 1.0f;
+        float selectBoost = isSelected ? (m_menuSelectPulse / 0.35f) : 0.0f;
+
+        DirectX::XMFLOAT4 lineCol = isSelected
+            ? DirectX::XMFLOAT4(0.55f * pulse, 0.95f * pulse, 1.0f * pulse, 1.0f)
+            : DirectX::XMFLOAT4(0.55f, 0.62f, 0.72f, 0.65f);
+
+        if (isSelected)
+        {
+            // Thin animated glow underline, not a filled UI box
+            float glowW = 260.0f + selectBoost * 40.0f;
+            Sprite_DrawRect(menuX - 24.0f + camX, iy + itemH - 14.0f + camY, glowW, 2.0f, { 0.45f, 0.9f, 1.0f, 0.55f * pulse });
+
+            // Holographic cursor: a small pulsing chevron to the left of the label
+            float cursorBob = sinf(m_totalTime * 8.0f) * 4.0f;
+            float cx = menuX - 34.0f + cursorBob + camX;
+            float cy = iy + 8.0f + camY;
+            Sprite_DrawLine(cx, cy, cx + 10.0f, cy + 8.0f, 2.2f, lineCol);
+            Sprite_DrawLine(cx, cy + 16.0f, cx + 10.0f, cy + 8.0f, 2.2f, lineCol);
+        }
+
+        char buf[48];
+        sprintf_s(buf, "%s %s", isSelected ? ">" : " ", kMenuLabels[i]);
+        DrawMatrixString(menuX + camX, iy + camY, buf, isSelected ? 2.1f : 1.9f, m_texLaser, lineCol);
+    }
+
+    DrawMatrixString(menuX + camX, menuStartY + 5.0f * itemH + 20.0f + camY,
+        "ARROWS/MOUSE: SELECT   ENTER/CLICK: CONFIRM", 1.2f, m_texLaser, { 0.5f, 0.6f, 0.7f, 0.7f });
+}
+
+void Game::DrawMainMenu()
+{
+    m_bgRenderer.Render(m_menuShakeOffset.x, m_menuShakeOffset.y);
+
+    float camX = m_menuShakeOffset.x;
+    float camY = m_menuShakeOffset.y;
+
+    // Parallax stars, with a very subtle mouse-driven drift for a lively feel
+    float mouseX = (float)InputMouse_GetX();
+    float mouseY = (float)InputMouse_GetY();
+    float parX = (mouseX - (float)SCREEN_WIDTH * 0.5f) * 0.01f;
+    float parY = (mouseY - (float)SCREEN_HEIGHT * 0.5f) * 0.01f;
+    for (const auto& star : m_menuStars)
+    {
+        float twinkle = sinf(m_totalTime * 1.6f + star.x * 0.05f) * 0.35f + 0.65f;
+        float b = star.z * twinkle;
+        Sprite_DrawRect(star.x + parX + camX, star.y + parY + camY, 1.6f, 1.6f, { 0.85f, 0.92f, 1.0f, b });
+    }
+
+    // Idle-world ambient background objects
+    for (const auto& obj : m_menuAmbient)
+    {
+        if (obj.kind == 0 && m_texAsteroid != -1)
+        {
+            int tw = Texture_GetWidth(m_texAsteroid);
+            int th = Texture_GetHeight(m_texAsteroid);
+            Sprite_Draw(m_texAsteroid, obj.position.x + camX - (float)tw * obj.scale * 0.5f, obj.position.y + camY - (float)th * obj.scale * 0.5f,
+                (float)tw * obj.scale, (float)th * obj.scale, 0, 0, tw, th, obj.rotation, { 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f, obj.alpha });
+        }
+        else if (obj.kind == 1 && m_texVida != -1)
+        {
+            int tw = Texture_GetWidth(m_texVida);
+            int th = Texture_GetHeight(m_texVida);
+            Sprite_Draw(m_texVida, obj.position.x + camX - (float)tw * obj.scale * 0.5f, obj.position.y + camY - (float)th * obj.scale * 0.5f,
+                (float)tw * obj.scale, (float)th * obj.scale, 0, 0, tw, th, obj.rotation, { 1.0f, 1.0f }, { 0.6f, 0.9f, 1.0f, obj.alpha });
+        }
+        else if (obj.kind == 2 && m_texFinalBoss != -1)
+        {
+            int tw = Texture_GetWidth(m_texFinalBoss);
+            int th = Texture_GetHeight(m_texFinalBoss);
+            Sprite_Draw(m_texFinalBoss, obj.position.x + camX - (float)tw * obj.scale * 0.5f, obj.position.y + camY - (float)th * obj.scale * 0.5f,
+                (float)tw * obj.scale, (float)th * obj.scale, 0, 0, tw, th, 0.0f, { 1.0f, 1.0f }, { 0.05f, 0.05f, 0.10f, obj.alpha });
+        }
+    }
+
+    // Ship scanner pulse ring
+    if (m_menuScannerPulseTimer > 0.0f)
+    {
+        float t = 1.0f - (m_menuScannerPulseTimer / 0.9f);
+        float rad = 20.0f + t * 130.0f;
+        float alpha = (1.0f - t) * 0.55f;
+        Sprite_DrawCircle(m_playerPos.x + camX, m_playerPos.y + camY, rad, 1.6f, { 0.45f, 0.90f, 1.0f, alpha }, 40);
+    }
+
+    bool interactiveMenu = (m_menuPhase == MainMenuPhase::Menu);
+    DrawAmbientShip(m_playerPos.x + camX, m_playerPos.y + camY, m_menuEngineGlow, interactiveMenu);
+
+    // Title / Logo
+    float titleY = (float)SCREEN_HEIGHT * 0.16f;
+    float titlePulse = sinf(m_totalTime * 1.4f) * 0.08f + 0.92f;
+    DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 210.0f + camX, titleY + camY, "YOKAI SHIP", 5.2f, m_texLaser,
+        { 0.55f * titlePulse, 0.90f * titlePulse, 1.0f * titlePulse, 1.0f });
+    DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 130.0f + camX, titleY + 46.0f + camY, "DEEP SPACE EXPEDITION", 1.6f, m_texLaser,
+        { 0.55f, 0.70f, 0.85f, 0.85f });
+
+    if (m_menuPhase == MainMenuPhase::Boot)
+    {
+        float blink = (sinf(m_menuBootPulseTimer * 3.2f) > 0.0f) ? 1.0f : 0.35f;
+        DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 150.0f + camX, (float)SCREEN_HEIGHT * 0.80f + camY, "> INITIALIZE SYSTEM", 2.0f, m_texLaser,
+            { 0.45f, 1.0f, 0.85f, 1.0f });
+        DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 110.0f + camX, (float)SCREEN_HEIGHT * 0.80f + 26.0f + camY, "PRESS ANY KEY", 1.5f, m_texLaser,
+            { 0.85f, 0.90f, 0.95f, blink });
+    }
+    else if (m_menuPhase == MainMenuPhase::BootGlitch)
+    {
+        float t = m_menuPhaseTimer / 0.40f;
+        float flashAlpha = std::max(0.0f, 0.65f - t * 0.65f);
+        Sprite_DrawRect(0.0f, 0.0f, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, { 0.75f, 0.95f, 1.0f, flashAlpha * 0.25f });
+        for (int i = 0; i < 10; ++i)
+        {
+            float ly = RandomFloat(0.0f, (float)SCREEN_HEIGHT);
+            float lw = RandomFloat(120.0f, (float)SCREEN_WIDTH);
+            float lx = RandomFloat(0.0f, (float)SCREEN_WIDTH - lw);
+            Sprite_DrawRect(lx, ly, lw, RandomFloat(1.0f, 3.0f), { 0.6f, 0.95f, 1.0f, RandomFloat(0.25f, 0.6f) });
+        }
+        DrawMatrixString((float)SCREEN_WIDTH * 0.5f - 140.0f, (float)SCREEN_HEIGHT * 0.80f, "SYSTEM ONLINE", 2.0f, m_texLaser,
+            { 0.55f, 1.0f, 0.75f, 1.0f });
+    }
+    else if (m_menuPhase == MainMenuPhase::Menu)
+    {
+        DrawMainMenuOptions(camX, camY);
+    }
+
+    if (m_menuPlaceholderTimer > 0.0f)
+    {
+        float alpha = std::min(1.0f, m_menuPlaceholderTimer);
+        float boxW = 560.0f;
+        float boxH = 50.0f;
+        float boxX = (float)SCREEN_WIDTH * 0.5f - boxW * 0.5f;
+        float boxY = (float)SCREEN_HEIGHT * 0.88f;
+        Sprite_DrawRect(boxX, boxY, boxW, boxH, { 0.08f, 0.08f, 0.14f, 0.85f * alpha });
+        Sprite_DrawRectBorder(boxX, boxY, boxW, boxH, 1.5f, { 0.85f, 0.35f, 0.35f, alpha });
+        DrawMatrixString(boxX + 20.0f, boxY + 17.0f, m_menuPlaceholderMessage.c_str(), 1.4f, m_texLaser, { 1.0f, 0.75f, 0.55f, alpha });
+    }
 }
 
 // ============================================================================
