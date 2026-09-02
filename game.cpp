@@ -5242,7 +5242,7 @@ void Game::DrawUpgrade()
     // entrance (a mid-run TAB pause keeps the classic tree-only view untouched).
     if (m_upgradeEnteredFromMenu)
     {
-        DrawAmbientShip(m_playerPos.x, m_playerPos.y, 0.35f, false);
+        DrawAmbientShip(m_playerPos.x, m_playerPos.y, false);
     }
 
     m_upgradeTree.Draw(m_resources, m_upgradeTree.GetCurrentSectorIndex());
@@ -5379,7 +5379,7 @@ void Game::UpdateMenuAmbientWorld(float deltaTime)
 
 // Draws the reusable player ship sprite as an ambient/idle presence (title screen, or docked
 // beside the Upgrade Tree) -- same asset & draw call as gameplay, just non-interactive here.
-void Game::DrawAmbientShip(float shipCenterX, float shipCenterY, float engineGlow, bool allowMouseTilt)
+void Game::DrawAmbientShip(float shipCenterX, float shipCenterY, bool allowMouseTilt)
 {
     if (m_texSpaceship == -1) return;
 
@@ -5405,15 +5405,6 @@ void Game::DrawAmbientShip(float shipCenterX, float shipCenterY, float engineGlo
 
     float drawX = shipCenterX + tiltShiftX;
     float drawY = shipCenterY + bob;
-
-    // Soft engine glow beneath the ship (approximated with thick concentric rings, the same
-    // idiom already used for the shield bubble elsewhere).
-    float glowPulse = sinf(m_totalTime * 5.0f) * 0.15f + 0.85f;
-    float glowRad = (11.0f + engineGlow * 17.0f) * glowPulse;
-    float glowY = drawY + h * 0.42f;
-    Sprite_DrawCircle(drawX, glowY, glowRad, glowRad * 0.95f, { 0.35f, 0.70f, 1.0f, 0.16f + engineGlow * 0.22f }, 18);
-    Sprite_DrawCircle(drawX, glowY, glowRad * 0.55f, glowRad * 0.55f, { 0.60f, 0.88f, 1.0f, 0.28f + engineGlow * 0.30f }, 16);
-    Sprite_DrawCircle(drawX, glowY, glowRad * 0.22f, glowRad * 0.22f, { 0.90f, 0.98f, 1.0f, 0.55f + engineGlow * 0.35f }, 10);
 
     Sprite_Draw(m_texSpaceship, drawX - w * 0.5f, drawY - h * 0.5f, w, h,
         0, 0, Texture_GetWidth(m_texSpaceship), Texture_GetHeight(m_texSpaceship),
@@ -5505,13 +5496,15 @@ void Game::UpdateMainMenu(float deltaTime)
     {
         const int kMenuCount = 5;
 
-        if (InputKeyboard_IsTrigger(KK_DOWN) || InputKeyboard_IsTrigger(KK_S))
+        // Arrow keys / mouse only -- W/A/S/D are the gameplay movement keys and must stay
+        // completely inert here so the ship never reacts to them on the title screen.
+        if (InputKeyboard_IsTrigger(KK_DOWN))
         {
             m_menuSelectedIndex = (m_menuSelectedIndex + 1) % kMenuCount;
             m_menuSelectPulse = 0.35f;
             if (m_soundClick != -1) PlayAudio(m_soundClick);
         }
-        else if (InputKeyboard_IsTrigger(KK_UP) || InputKeyboard_IsTrigger(KK_W))
+        else if (InputKeyboard_IsTrigger(KK_UP))
         {
             m_menuSelectedIndex = (m_menuSelectedIndex - 1 + kMenuCount) % kMenuCount;
             m_menuSelectPulse = 0.35f;
@@ -5657,7 +5650,7 @@ void Game::DrawMainMenu()
     }
 
     bool interactiveMenu = (m_menuPhase == MainMenuPhase::Menu);
-    DrawAmbientShip(m_playerPos.x + camX, m_playerPos.y + camY, m_menuEngineGlow, interactiveMenu);
+    DrawAmbientShip(m_playerPos.x + camX, m_playerPos.y + camY, interactiveMenu);
 
     // Title / Logo
     float titleY = (float)SCREEN_HEIGHT * 0.16f;

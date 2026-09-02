@@ -526,7 +526,7 @@ private:
     // Main Menu / Title Screen Helpers
     void InitMainMenu();                    // Reset boot/menu state when (re)entering the title screen
     void UpdateMenuAmbientWorld(float deltaTime); // Parallax stars & rare idle-world background events
-    void DrawAmbientShip(float shipCenterX, float shipCenterY, float engineGlow, bool allowMouseTilt);
+    void DrawAmbientShip(float shipCenterX, float shipCenterY, bool allowMouseTilt);
     void ConfirmMenuSelection(int index);   // Handles activating the currently selected menu option
     void DrawMainMenuOptions(float camX, float camY);
     bool AnyKeyPressed() const;
