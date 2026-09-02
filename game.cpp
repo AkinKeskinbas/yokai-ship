@@ -296,14 +296,16 @@ bool Game::Initialize(HWND hWnd)
     {
         // Developer test mode: skip the title screen entirely and drop straight into gameplay.
         m_currentScene = GameScene::Gameplay;
+        ResetRun(); // Prepares gameplay-run state (asteroids, spawn timers, boss trigger, ...)
     }
     else
     {
+        // ResetRun() is gameplay-run setup only (and would otherwise place the ship below the
+        // screen for the gameplay entry sequence) -- it runs later, when an expedition actually
+        // starts. The title screen just needs its own idle state.
         m_currentScene = GameScene::MainMenu;
         InitMainMenu();
     }
-
-    ResetRun();
 
     return true;
 }
