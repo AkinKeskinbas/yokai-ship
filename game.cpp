@@ -332,6 +332,18 @@ void Game::Finalize()
 
 void Game::ResetRun()
 {
+    // Test Mode: match the sector level to the boss being tested (so HP/spawn scaling is
+    // consistent with that sector), and fill resources so upgrades/skills can be tested freely.
+    if (EnemyConfig::TEST_SPAWN_BOSS2_AT_START)
+    {
+        m_calamity.level = std::clamp(EnemyConfig::TEST_BOSS_TYPE, 1, 4);
+        m_resources.reishi = 9999;
+        m_resources.vida = 9999;
+        m_resources.disli = 9999;
+        m_resources.cpu = 9999;
+        m_resources.key = 9999;
+    }
+
     m_playerPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.5f, (float)SCREEN_HEIGHT * 0.5f);
     m_playerVelocity = DirectX::XMFLOAT2(0.0f, 0.0f);
     m_playerRotation = 0.0f;
@@ -426,7 +438,7 @@ void Game::ResetRun()
 
     // Reset Shield
     m_currentShield = m_stats.maxShield;
-    m_shieldRechargeTimer = 8.0f;
+    m_shieldRechargeTimer = m_stats.shieldRechargeTime;
 
     // Reset Dash & Overcharge
     m_isDashing = false;
@@ -487,7 +499,7 @@ void Game::ResetRun()
     }
 
     // Setup Active Skill Slots
-    m_skillSlots[0] = { m_stats.skill1, 0.0f, 10.0f, "EMP NOVA", "Q" };
+    m_skillSlots[0] = { m_stats.skill1, 0.0f, 20.0f, "EMP NOVA", "Q" };
     m_skillSlots[1] = { m_stats.skill2, 0.0f, 15.0f, "OVERCHARGE", "E" };
     m_skillSlots[2] = { m_stats.skill3, 0.0f, 3.5f, "PHASE DASH", "SPACE" };
 
@@ -541,7 +553,7 @@ void Game::Update(float deltaTime)
     }
 }
 
-void Game::TriggerShockwave(const DirectX::XMFLOAT2& center, float maxRadius, float damage)
+void Game::TriggerShockwave(const DirectX::XMFLOAT2& center, float maxRadius, float damage, bool affectEnemies)
 {
     ShockwaveInstance sw;
     sw.center = center;
@@ -555,20 +567,23 @@ void Game::TriggerShockwave(const DirectX::XMFLOAT2& center, float maxRadius, fl
     TriggerCameraShake(0.20f, 4.5f);
 
     // Push enemies in radius & deal damage
-    for (auto& enemy : m_enemies)
+    if (affectEnemies)
     {
-        if (enemy.destroyed) continue;
-        float dx = enemy.position.x - center.x;
-        float dy = enemy.position.y - center.y;
-        float dist = sqrtf(dx * dx + dy * dy);
-        if (dist <= maxRadius && dist > 0.001f)
+        for (auto& enemy : m_enemies)
         {
-            enemy.hp -= damage;
-            enemy.flashTimer = 0.15f;
-            SpawnDamagePopup(enemy.position, (int)damage, true);
-            float push = (maxRadius - dist) + 40.0f;
-            enemy.position.x += (dx / dist) * push;
-            enemy.position.y += (dy / dist) * push;
+            if (enemy.destroyed) continue;
+            float dx = enemy.position.x - center.x;
+            float dy = enemy.position.y - center.y;
+            float dist = sqrtf(dx * dx + dy * dy);
+            if (dist <= maxRadius && dist > 0.001f)
+            {
+                enemy.hp -= damage;
+                enemy.flashTimer = 0.15f;
+                SpawnDamagePopup(enemy.position, (int)damage, true);
+                float push = (maxRadius - dist) + 40.0f;
+                enemy.position.x += (dx / dist) * push;
+                enemy.position.y += (dy / dist) * push;
+            }
         }
     }
 
@@ -757,7 +772,7 @@ void Game::UpdateGameplay(float deltaTime)
         if (InputKeyboard_IsTrigger(KK_Q) && m_skillSlots[0].type == ActiveSkillType::EmpWave && m_skillSlots[0].cooldownTimer <= 0.0f)
         {
             m_skillSlots[0].cooldownTimer = m_skillSlots[0].maxCooldown;
-            TriggerShockwave(m_playerPos, 450.0f, 75.0f);
+            TriggerShockwave(m_playerPos, 450.0f, 0.0f, false); // EMP Nova: destroys projectiles only, does not damage drones
             if (m_soundShoot != -1) PlayAudio(m_soundShoot);
         }
 
@@ -832,7 +847,7 @@ void Game::UpdateGameplay(float deltaTime)
             if (m_shieldRechargeTimer <= 0.0f)
             {
                 m_currentShield = m_stats.maxShield;
-                m_shieldRechargeTimer = 8.0f;
+                m_shieldRechargeTimer = m_stats.shieldRechargeTime;
             }
         }
 
@@ -843,7 +858,8 @@ void Game::UpdateGameplay(float deltaTime)
             if (m_shockwaveAutoTimer >= m_stats.shockwaveInterval)
             {
                 m_shockwaveAutoTimer = 0.0f;
-                TriggerShockwave(m_playerPos, m_stats.shockwaveRadius, m_stats.shockwaveDamage);
+                // EMP Pulse Generator: clears nearby enemy projectiles only, no enemy/boss damage or knockback
+                TriggerShockwave(m_playerPos, m_stats.shockwaveRadius, m_stats.shockwaveDamage, false);
             }
         }
 
@@ -910,13 +926,14 @@ void Game::UpdateGameplay(float deltaTime)
                 }
                 for (auto& ast : m_asteroids)
                 {
-                    if (ast.destroyed) continue;
+                    if (ast.destroyed || ast.invulnerable) continue;
                     float dx = ast.position.x - m_playerPos.x;
                     float dy = ast.position.y - m_playerPos.y;
                     if (sqrtf(dx * dx + dy * dy) < m_playerHitboxRadius + ast.radius + 15.0f)
                     {
                         ast.hp -= 120.0f;
                         ast.flashTimer = 0.08f;
+                        ClampFinalBossHpFloor(ast);
                         SpawnDamagePopup(ast.position, 120, true);
                         TriggerCameraShake(0.35f, 10.0f);
                         if (ast.hp <= 0.0f) ast.destroyed = true;
@@ -1127,9 +1144,10 @@ void Game::UpdateGameplay(float deltaTime)
                     float edy = e.position.y - it->position.y;
                     if (sqrtf(edx * edx + edy * edy) < e.radius + it->radius)
                     {
-                        e.hp -= 40.0f;
+                        // Deflector Matrix: reflected bullets deal only 50% of their original (40) damage
+                        e.hp -= 20.0f;
                         e.flashTimer = 0.08f;
-                        SpawnDamagePopup(e.position, 40, true);
+                        SpawnDamagePopup(e.position, 20, true);
                         if (e.hp <= 0.0f) e.destroyed = true;
                         it->lifetime = 0.0f;
                         break;
@@ -1145,9 +1163,11 @@ void Game::UpdateGameplay(float deltaTime)
 
                 if (pDist < minDist)
                 {
-                    // Reflective Shield
-                    if (m_stats.reflectiveShield && m_currentShield > 0)
+                    // Reflective Shield: still only 1 hit -- reflecting consumes the same
+                    // shield charge the plain absorb does, so it can't deflect indefinitely.
+                    if (m_stats.reflectiveShield && m_currentShield > 0 && m_invincibleTimer <= 0.0f && !m_isDashing)
                     {
+                        ConsumeShieldCharge(true);
                         it->isReflected = true;
                         it->velocity.x = -it->velocity.x * 1.6f;
                         it->velocity.y = -it->velocity.y * 1.6f;
@@ -1178,11 +1198,13 @@ void Game::UpdateGameplay(float deltaTime)
         // UPDATE FINAL BOSS ORBS (m_bossOrbs)
         // ==========================================
         DirectX::XMFLOAT2 boss4Pos{ (float)SCREEN_WIDTH * 0.5f, EnemyConfig::BossFinal.hoverY };
+        bool boss4CrossFireWarning = false;
         for (const auto& ast : m_asteroids)
         {
             if (ast.isBoss && ast.bossType == 4)
             {
                 boss4Pos = ast.position;
+                boss4CrossFireWarning = ast.crossFireWarningActive;
                 break;
             }
         }
@@ -1206,8 +1228,8 @@ void Game::UpdateGameplay(float deltaTime)
                 continue;
             }
 
-            // Ghost lifetime
-            if (it->isGhost)
+            // Ghost lifetime (skip for permanent Final Phase ghosts)
+            if (it->isGhost && !it->isPermanent)
             {
                 it->ghostLifetime -= deltaTime;
                 if (it->ghostLifetime <= 0.0f)
@@ -1220,13 +1242,29 @@ void Game::UpdateGameplay(float deltaTime)
             // Flash timer
             if (it->flashTimer > 0.0f) it->flashTimer -= deltaTime;
 
-            // Orbit update
-            it->angle += EnemyConfig::BossFinal.orbBaseRotationSpeed * speedMult * deltaTime;
+            // Orbit update. Ghost orbs use their own configured orbit speed (faster & permanent
+            // in the Final Phase) and freeze in place while a Cross Fire telegraph is showing so
+            // the player can read their cardinal positions before the volley fires.
+            if (it->isGhost)
+            {
+                if (!boss4CrossFireWarning)
+                {
+                    float ghostSpeed = it->isPermanent
+                        ? EnemyConfig::BossFinal.finalGhostOrbitSpeed
+                        : EnemyConfig::BossFinal.ghostOrbOrbitSpeed;
+                    it->angle += ghostSpeed * deltaTime;
+                }
+            }
+            else
+            {
+                it->angle += EnemyConfig::BossFinal.orbBaseRotationSpeed * speedMult * deltaTime;
+            }
             it->position = { boss4Pos.x + cosf(it->angle) * it->orbitRadius, boss4Pos.y + sinf(it->angle) * it->orbitRadius };
 
-            // Firing patterns
+            // Firing patterns (Cross Fire telegraph suppresses normal per-orb firing;
+            // its volley is fired explicitly once the warning timer expires)
             it->fireTimer -= deltaTime;
-            if (it->fireTimer <= 0.0f)
+            if (it->fireTimer <= 0.0f && !(it->isGhost && boss4CrossFireWarning))
             {
                 it->fireTimer = it->fireInterval;
 
@@ -1234,12 +1272,15 @@ void Game::UpdateGameplay(float deltaTime)
                 float ody = m_playerPos.y - it->position.y;
                 float baseAngle = atan2f(ody, odx);
 
+                // Ghost orbs fire faster projectiles than the destructible OrbShield orbs
+                float bSpeed = it->isGhost ? EnemyConfig::BossFinal.ghostOrbBulletSpeed : EnemyConfig::BossFinal.orbBulletSpeed;
+
                 if (it->attackPattern == 0)
                 {
                     // Pattern A: 1 aimed projectile
                     EnemyProjectile bp;
                     bp.position = it->position;
-                    bp.velocity = { cosf(baseAngle) * EnemyConfig::BossFinal.orbBulletSpeed, sinf(baseAngle) * EnemyConfig::BossFinal.orbBulletSpeed };
+                    bp.velocity = { cosf(baseAngle) * bSpeed, sinf(baseAngle) * bSpeed };
                     bp.radius = 11.0f;
                     bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
                     bp.lifetime = 4.5f;
@@ -1254,7 +1295,7 @@ void Game::UpdateGameplay(float deltaTime)
                         float angle = baseAngle + (float)p * 0.22f;
                         EnemyProjectile bp;
                         bp.position = it->position;
-                        bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.orbBulletSpeed, sinf(angle) * EnemyConfig::BossFinal.orbBulletSpeed };
+                        bp.velocity = { cosf(angle) * bSpeed, sinf(angle) * bSpeed };
                         bp.radius = 11.0f;
                         bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
                         bp.lifetime = 4.5f;
@@ -1262,7 +1303,7 @@ void Game::UpdateGameplay(float deltaTime)
                         m_enemyProjectiles.push_back(bp);
                     }
                 }
-                else
+                else if (it->attackPattern == 2)
                 {
                     // Pattern C: 6-direction radial burst
                     float startRot = m_totalTime * 2.0f;
@@ -1271,13 +1312,27 @@ void Game::UpdateGameplay(float deltaTime)
                         float angle = startRot + (float)p * (2.0f * PI / 6.0f);
                         EnemyProjectile bp;
                         bp.position = it->position;
-                        bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.orbBulletSpeed, sinf(angle) * EnemyConfig::BossFinal.orbBulletSpeed };
+                        bp.velocity = { cosf(angle) * bSpeed, sinf(angle) * bSpeed };
                         bp.radius = 11.0f;
                         bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
                         bp.lifetime = 4.5f;
                         bp.isBossSpiral = true;
                         m_enemyProjectiles.push_back(bp);
                     }
+                }
+                else if (it->attackPattern == 3)
+                {
+                    // Ghost Pattern 1 (Rotating Spiral): single shot fired outward along the
+                    // orb's current orbit angle. The spiral shape emerges purely from the orb
+                    // continuously rotating while this fires periodically -- no spiral math needed.
+                    EnemyProjectile bp;
+                    bp.position = it->position;
+                    bp.velocity = { cosf(it->angle) * bSpeed, sinf(it->angle) * bSpeed };
+                    bp.radius = 11.0f;
+                    bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
+                    bp.lifetime = 4.5f;
+                    bp.isBossSpiral = true;
+                    m_enemyProjectiles.push_back(bp);
                 }
             }
 
@@ -2918,7 +2973,10 @@ void Game::SpawnAsteroids(float deltaTime)
 void Game::SpawnEnemies(float deltaTime)
 {
     // Enemy drones do not spawn in Sector 1; they start appearing in Sector 2 (Round 2) onwards!
-    if (m_calamity.level < 2 || m_bossTriggered)
+    // They keep spawning during single-boss fights for background pressure. They only pause
+    // during the Sector 5 Boss Rush, where multiple simultaneous bosses are already chaotic enough.
+    bool isBossRush = m_bossTriggered && m_calamity.level >= 5;
+    if (m_calamity.level < 2 || isBossRush)
     {
         return;
     }
@@ -3092,7 +3150,7 @@ void Game::TargetAndFireLasers(float deltaTime)
             {
                 float pierceDmg = currentDamage * 0.05f;
                 if (secTarget.enemy) { secTarget.enemy->hp -= pierceDmg; secTarget.enemy->flashTimer = 0.05f; }
-                else if (secTarget.asteroid && !secTarget.asteroid->invulnerable) { secTarget.asteroid->hp -= pierceDmg; secTarget.asteroid->flashTimer = 0.05f; }
+                else if (secTarget.asteroid && !secTarget.asteroid->invulnerable) { secTarget.asteroid->hp -= pierceDmg; secTarget.asteroid->flashTimer = 0.05f; ClampFinalBossHpFloor(*secTarget.asteroid); }
                 else if (secTarget.bossOrb) { secTarget.bossOrb->hp -= pierceDmg; secTarget.bossOrb->flashTimer = 0.05f; }
             }
         }
@@ -3114,7 +3172,7 @@ void Game::TargetAndFireLasers(float deltaTime)
             {
                 float chainDmg = currentDamage * 0.04f;
                 if (chainTarget.enemy) { chainTarget.enemy->hp -= chainDmg; chainTarget.enemy->flashTimer = 0.05f; }
-                else if (chainTarget.asteroid && !chainTarget.asteroid->invulnerable) { chainTarget.asteroid->hp -= chainDmg; chainTarget.asteroid->flashTimer = 0.05f; }
+                else if (chainTarget.asteroid && !chainTarget.asteroid->invulnerable) { chainTarget.asteroid->hp -= chainDmg; chainTarget.asteroid->flashTimer = 0.05f; ClampFinalBossHpFloor(*chainTarget.asteroid); }
                 else if (chainTarget.bossOrb) { chainTarget.bossOrb->hp -= chainDmg; chainTarget.bossOrb->flashTimer = 0.05f; }
             }
         }
@@ -3219,6 +3277,7 @@ void Game::TargetAndFireLasers(float deltaTime)
 
                     target.asteroid->hp -= dmg;
                     target.asteroid->flashTimer = 0.06f;
+                    ClampFinalBossHpFloor(*target.asteroid);
 
                     if (target.asteroid->hp <= 0.0f)
                     {
@@ -3429,10 +3488,11 @@ void Game::UpdateTurrets(float deltaTime)
                             SpawnDamagePopup(targetEnemy->position, dmg, false);
                             if (targetEnemy->hp <= 0.0f) targetEnemy->destroyed = true;
                         }
-                        else if (targetAst)
+                        else if (targetAst && !targetAst->invulnerable)
                         {
                             targetAst->hp -= (float)dmg;
                             targetAst->flashTimer = 0.08f;
+                            ClampFinalBossHpFloor(*targetAst);
                             SpawnDamagePopup(targetAst->position, dmg, false);
                             if (targetAst->hp <= 0.0f) targetAst->destroyed = true;
                         }
@@ -3443,6 +3503,17 @@ void Game::UpdateTurrets(float deltaTime)
             }
         }
     }
+}
+
+void Game::ConsumeShieldCharge(bool reflected)
+{
+    // Pops the shield's single charge and restarts its recharge -- shared by the plain-absorb
+    // path (DamagePlayer) and the Deflector Matrix reflect path, so the shield always blocks
+    // exactly 1 hit total no matter which path stops the incoming projectile.
+    m_currentShield--;
+    m_shieldRechargeTimer = m_stats.shieldRechargeTime;
+    TriggerCameraShake(0.25f, 6.0f);
+    SpawnTextPopup(m_playerPos, reflected ? "SHIELD DEFLECTED" : "SHIELD ABSORBED", { 0.40f, 0.85f, 1.0f, 1.0f });
 }
 
 void Game::DamagePlayer(int amount)
@@ -3459,9 +3530,7 @@ void Game::DamagePlayer(int amount)
 
     if (m_currentShield > 0)
     {
-        m_currentShield--;
-        m_shieldRechargeTimer = 8.0f;
-        TriggerCameraShake(0.25f, 6.0f);
+        ConsumeShieldCharge(false);
         TriggerShockwave(m_playerPos, 160.0f, 20.0f); // Shield burst
         return;
     }
@@ -3554,6 +3623,24 @@ void Game::SpawnDamagePopup(const DirectX::XMFLOAT2& pos, int damage, bool isCri
         dp.baseScale = 1.0f;
         dp.color = DirectX::XMFLOAT4(1.0f, 0.96f, 0.82f, 1.0f); // Crisp Ivory Gold
     }
+
+    m_damagePopups.push_back(dp);
+}
+
+void Game::SpawnTextPopup(const DirectX::XMFLOAT2& pos, const char* text, const DirectX::XMFLOAT4& color)
+{
+    DamagePopup dp;
+    dp.position = pos;
+    dp.position.x += RandomFloat(-10.0f, 10.0f);
+    dp.position.y += RandomFloat(-8.0f, 4.0f);
+
+    dp.isTextLabel = true;
+    dp.label = text;
+    dp.color = color;
+    dp.baseScale = 1.0f;
+    dp.lifetime = 0.0f;
+    dp.maxLifetime = 0.85f;
+    dp.velocity = { RandomFloat(-14.0f, 14.0f), -RandomFloat(90.0f, 120.0f) };
 
     m_damagePopups.push_back(dp);
 }
@@ -4211,6 +4298,35 @@ void Game::DrawGameplay()
         }
     }
 
+    // 2c-bis. Ghost Cross Fire telegraph: warning glow at the captured target + tether lines
+    // from each Ghost Orb, so the player can read where the volley is about to converge.
+    for (const auto& ast : m_asteroids)
+    {
+        if (ast.isBoss && ast.bossType == 4)
+        {
+            if (ast.crossFireWarningActive)
+            {
+                float warnRatio = std::clamp(ast.crossFireWarningTimer / EnemyConfig::BossFinal.ghostCrossFireWarning, 0.0f, 1.0f);
+                float pulse = sinf(m_totalTime * 24.0f) * 0.20f + 0.80f;
+                float tX = ast.crossFireTarget.x + camX;
+                float tY = ast.crossFireTarget.y + camY;
+
+                // Shrinking outer ring converging on the target as the warning runs out
+                Sprite_DrawCircle(tX, tY, 14.0f + 46.0f * warnRatio, 2.5f, { 1.0f, 0.25f, 0.30f, 0.85f * pulse }, 28);
+                Sprite_DrawCircle(tX, tY, 8.0f, 2.0f, { 1.0f, 0.55f, 0.35f, 0.90f }, 16);
+                DrawMatrixString(tX - 6.0f, tY - 34.0f, "!", 2.0f, m_texLaser, { 1.0f, 0.30f, 0.30f, 1.0f });
+
+                // Tether lines from each Ghost Orb to the captured target
+                for (const auto& orb : m_bossOrbs)
+                {
+                    if (!orb.isGhost || !orb.alive) continue;
+                    Sprite_DrawLine(orb.position.x + camX, orb.position.y + camY, tX, tY, 1.5f, { 1.0f, 0.35f, 0.35f, 0.55f * pulse });
+                }
+            }
+            break;
+        }
+    }
+
     // 2d. Draw Final Boss Falling & Embedded Blades (boss_blade.png)
     for (const auto& blade : m_bossBlades)
     {
@@ -4587,7 +4703,17 @@ void Game::DrawGameplay()
             DirectX::XMFLOAT4 col = popup.color;
             col.w = alpha;
 
-            DrawDamageNumber(popup.position.x + camX, popup.position.y + camY, popup.damageAmount, curScale, m_texNumber, col, popup.isCritical, popup.isWeakpoint, m_texLaser);
+            if (popup.isTextLabel)
+            {
+                float fontSize = 1.5f * curScale;
+                float textWidth = (float)popup.label.length() * 4.0f * fontSize;
+                DrawMatrixString(popup.position.x + camX - textWidth * 0.5f, popup.position.y + camY - (5.0f * fontSize) * 0.5f,
+                    popup.label.c_str(), fontSize, m_texLaser, col);
+            }
+            else
+            {
+                DrawDamageNumber(popup.position.x + camX, popup.position.y + camY, popup.damageAmount, curScale, m_texNumber, col, popup.isCritical, popup.isWeakpoint, m_texLaser);
+            }
         }
     }
 
@@ -5094,6 +5220,25 @@ void Game::TriggerBladeCommandAimedShot()
     }
 }
 
+void Game::ClampFinalBossHpFloor(Asteroid& ast)
+{
+    // Enforce the per-phase HP floor on every damage path (lasers, pierce, chain, turrets,
+    // dash impacts, ...) so high player DPS can never skip a phase transition.
+    if (!(ast.isBoss && ast.bossType == 4) || ast.hp <= 0.0f) return;
+
+    float maxHp = ast.maxHp;
+    float hpFloor = 0.0f;
+    if (ast.finalPhase == FinalBossPhase::Phase1)
+        hpFloor = maxHp * EnemyConfig::BossFinal.phase1HpFloor;
+    else if (ast.finalPhase == FinalBossPhase::Phase2)
+        hpFloor = maxHp * EnemyConfig::BossFinal.phase2HpFloor;
+    else if (ast.finalPhase == FinalBossPhase::Phase3)
+        hpFloor = maxHp * EnemyConfig::BossFinal.phase3HpFloor;
+
+    if (hpFloor > 0.0f && ast.hp < hpFloor)
+        ast.hp = hpFloor;
+}
+
 void Game::SpawnGhostOrbs(const DirectX::XMFLOAT2& bossPos)
 {
     // Clear old ghost orbs if any
@@ -5114,14 +5259,132 @@ void Game::SpawnGhostOrbs(const DirectX::XMFLOAT2& bossPos)
         gOrb.maxHp = 9999.0f;
         gOrb.radius = EnemyConfig::BossFinal.orbRadius;
         gOrb.scale = EnemyConfig::BossFinal.orbScale;
-        gOrb.fireInterval = 1.8f;
-        gOrb.fireTimer = 0.3f + (float)k * 0.40f;
-        gOrb.attackPattern = k % 3;
+        gOrb.fireInterval = 9999.0f; // Idle by default; only fires when a combo step arms it
+        gOrb.fireTimer = 9999.0f;
+        gOrb.attackPattern = 3; // Outward (spiral) is the default pattern when armed
         gOrb.flashTimer = 0.0f;
         gOrb.alive = true;
         gOrb.isGhost = true;
-        gOrb.ghostLifetime = EnemyConfig::BossFinal.phase3GhostDuration;
+        gOrb.isPermanent = false;
+        gOrb.ghostLifetime = 12.0f; // Long but finite for Phase 3
         m_bossOrbs.push_back(gOrb);
+    }
+}
+
+void Game::SpawnPermanentGhostOrbs(const DirectX::XMFLOAT2& bossPos)
+{
+    // Clear old ghost orbs if any
+    for (auto it = m_bossOrbs.begin(); it != m_bossOrbs.end(); )
+    {
+        if (it->isGhost) it = m_bossOrbs.erase(it);
+        else ++it;
+    }
+
+    float angles[4] = { 0.0f, 1.5707963f, 3.14159265f, 4.712389f };
+    for (int k = 0; k < 4; ++k)
+    {
+        BossOrb gOrb;
+        gOrb.angle = angles[k];
+        gOrb.orbitRadius = EnemyConfig::BossFinal.orbOrbitRadius;
+        gOrb.position = { bossPos.x + cosf(gOrb.angle) * gOrb.orbitRadius, bossPos.y + sinf(gOrb.angle) * gOrb.orbitRadius };
+        gOrb.hp = 9999.0f;
+        gOrb.maxHp = 9999.0f;
+        gOrb.radius = EnemyConfig::BossFinal.orbRadius;
+        gOrb.scale = EnemyConfig::BossFinal.orbScale;
+        gOrb.fireInterval = 9999.0f; // Idle by default; only fires when a combo step arms it
+        gOrb.fireTimer = 9999.0f;
+        gOrb.attackPattern = 3; // Outward (spiral) is the default pattern when armed
+        gOrb.flashTimer = 0.0f;
+        gOrb.alive = true;
+        gOrb.isGhost = true;
+        gOrb.isPermanent = true; // Never expires in Final Phase
+        gOrb.ghostLifetime = 9999.0f;
+        m_bossOrbs.push_back(gOrb);
+    }
+}
+
+void Game::FireGhostSpiral()
+{
+    // Each ghost orb fires one projectile outward immediately, then is armed to keep firing
+    // outward every ghostSpiralFireInterval while it continues orbiting -- the spiral shape
+    // emerges purely from the rotating emitter positions, no spiral projectile math needed.
+    for (auto& orb : m_bossOrbs)
+    {
+        if (!orb.isGhost || !orb.alive) continue;
+
+        float outAngle = orb.angle; // Fire outward from orbit center
+        EnemyProjectile bp;
+        bp.position = orb.position;
+        bp.velocity = { cosf(outAngle) * EnemyConfig::BossFinal.ghostOrbBulletSpeed, sinf(outAngle) * EnemyConfig::BossFinal.ghostOrbBulletSpeed };
+        bp.radius = 11.0f;
+        bp.damage = EnemyConfig::BossFinal.orbBulletDamage;
+        bp.lifetime = 4.5f;
+        bp.isBossSpiral = true;
+        m_enemyProjectiles.push_back(bp);
+
+        orb.attackPattern = 3; // Outward
+        orb.fireInterval = EnemyConfig::BossFinal.ghostSpiralFireInterval;
+        orb.fireTimer = orb.fireInterval;
+    }
+}
+
+void Game::HaltGhostOrbFiring()
+{
+    // Disarm all ghost orbs so they stop auto-firing between combo steps -- firing is only
+    // ever driven explicitly by the Fire* pattern functions and this idle state.
+    for (auto& orb : m_bossOrbs)
+    {
+        if (!orb.isGhost) continue;
+        orb.fireInterval = 9999.0f;
+        orb.fireTimer = 9999.0f;
+    }
+}
+
+void Game::FireGhostAimedSequence()
+{
+    // Ghost Orbs fire one after another (staggered via fireTimer).
+    // Each orb fires a 3-way spread toward the player's position at the moment of firing.
+    // This is called to SET UP the sequence — actual firing happens via the orb update loop's fireTimer.
+    int idx = 0;
+    for (auto& orb : m_bossOrbs)
+    {
+        if (!orb.isGhost || !orb.alive) continue;
+        orb.attackPattern = 1; // 3-way spread aimed at player
+        orb.fireTimer = EnemyConfig::BossFinal.ghostAimedSequenceDelay * (float)idx;
+        orb.fireInterval = 99.0f; // Fire once then wait for next pattern
+        ++idx;
+    }
+}
+
+void Game::FireGhostCrossFire()
+{
+    // Stop four Ghost Orbs at cardinal positions and capture player position for telegraph.
+    // The actual firing happens in UpdateFinalBoss after the warning timer expires.
+    // Find boss position
+    DirectX::XMFLOAT2 bossPos{ (float)SCREEN_WIDTH * 0.5f, EnemyConfig::BossFinal.hoverY };
+    for (const auto& ast : m_asteroids)
+    {
+        if (ast.isBoss && ast.bossType == 4)
+        {
+            bossPos = ast.position;
+            // Set crossfire state on the boss
+            break;
+        }
+    }
+
+    // Snap ghost orbs to cardinal positions
+    float cardinalAngles[4] = { 0.0f, 1.5707963f, 3.14159265f, 4.712389f };
+    int idx = 0;
+    for (auto& orb : m_bossOrbs)
+    {
+        if (!orb.isGhost || !orb.alive) continue;
+        if (idx < 4)
+        {
+            orb.angle = cardinalAngles[idx];
+            orb.position = { bossPos.x + cosf(orb.angle) * orb.orbitRadius, bossPos.y + sinf(orb.angle) * orb.orbitRadius };
+        }
+        orb.fireTimer = 99.0f; // Don't fire during telegraph
+        ++idx;
     }
 }
 
@@ -5159,35 +5422,107 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
         }
     }
 
-    // 2. Phase Transitions by HP percentage (only if vulnerable)
+    // ==============================================================
+    // 2. Phase Transitions by HP percentage (with damage gating)
+    // ==============================================================
     if (!boss.invulnerable)
     {
-        if (boss.finalPhase == FinalBossPhase::Phase1 && hpPct <= 0.70f)
+        if (boss.finalPhase == FinalBossPhase::Phase1 && hpPct <= EnemyConfig::BossFinal.phase1HpFloor)
         {
-            boss.finalPhase = FinalBossPhase::Phase2;
-            boss.finalAttackTimer = 1.0f;
-            boss.finalBladeTimer = 0.8f; // Drop blades soon
-            TriggerCameraShake(0.35f, 5.5f);
-        }
-        else if (boss.finalPhase == FinalBossPhase::Phase2 && hpPct <= 0.40f)
-        {
-            boss.finalPhase = FinalBossPhase::Phase3;
-            boss.finalAttackTimer = 1.0f;
-            boss.finalBladeTimer = 2.0f;
-            boss.ghostOrbTimer = 0.0f;
-            SpawnGhostOrbs(boss.position);
+            // Transition Phase 1 -> Phase 2
+            boss.finalPhase = FinalBossPhase::Transition12;
+            boss.transitionTimer = EnemyConfig::BossFinal.transitionDuration;
+            boss.invulnerable = true;
+            boss.hp = boss.maxHp * EnemyConfig::BossFinal.phase1HpFloor; // Clamp to floor
+            boss.finalAttackTimer = 0.0f;
+            boss.flashTimer = 0.3f;
             TriggerCameraShake(0.40f, 6.0f);
+            TriggerShockwave(boss.position, 200.0f, 0.0f);
         }
-        else if (boss.finalPhase == FinalBossPhase::Phase3 && hpPct <= 0.15f)
+        else if (boss.finalPhase == FinalBossPhase::Phase2 && hpPct <= EnemyConfig::BossFinal.phase2HpFloor)
         {
-            boss.finalPhase = FinalBossPhase::Final;
-            boss.finalAttackTimer = 0.8f;
-            boss.bladePrisonTimer = 1.5f; // Trigger Blade Prison special soon!
-            TriggerCameraShake(0.50f, 7.5f);
+            // Transition Phase 2 -> Phase 3
+            boss.finalPhase = FinalBossPhase::Transition23;
+            boss.transitionTimer = EnemyConfig::BossFinal.transitionDuration;
+            boss.invulnerable = true;
+            boss.hp = boss.maxHp * EnemyConfig::BossFinal.phase2HpFloor;
+            boss.finalAttackTimer = 0.0f;
+            boss.finalBladeTimer = 0.0f;
+            boss.flashTimer = 0.3f;
+            TriggerCameraShake(0.45f, 7.0f);
+            TriggerShockwave(boss.position, 240.0f, 0.0f);
+        }
+        else if (boss.finalPhase == FinalBossPhase::Phase3 && hpPct <= EnemyConfig::BossFinal.phase3HpFloor)
+        {
+            // Transition Phase 3 -> Final
+            boss.finalPhase = FinalBossPhase::Transition3F;
+            boss.transitionTimer = EnemyConfig::BossFinal.transitionDuration;
+            boss.invulnerable = true;
+            boss.hp = boss.maxHp * EnemyConfig::BossFinal.phase3HpFloor;
+            boss.finalAttackTimer = 0.0f;
+            boss.phase3ComboTimer = 0.0f;
+            boss.flashTimer = 0.3f;
+            TriggerCameraShake(0.50f, 8.0f);
+            TriggerShockwave(boss.position, 280.0f, 0.0f);
         }
     }
 
-    // 3. Phase Attack Execution
+    // ==============================================================
+    // 3. Handle Transition States (invulnerable, timer-based)
+    // ==============================================================
+    if (boss.finalPhase == FinalBossPhase::Transition12)
+    {
+        boss.transitionTimer -= deltaTime;
+        if (boss.transitionTimer <= 0.0f)
+        {
+            boss.finalPhase = FinalBossPhase::Phase2;
+            boss.invulnerable = false;
+            boss.finalAttackTimer = 1.0f;
+            boss.finalBladeTimer = 0.8f;
+            boss.finalAttackStep = 0;
+            TriggerCameraShake(0.35f, 5.5f);
+        }
+        return; // No attacks during transition
+    }
+    else if (boss.finalPhase == FinalBossPhase::Transition23)
+    {
+        boss.transitionTimer -= deltaTime;
+        if (boss.transitionTimer <= 0.0f)
+        {
+            boss.finalPhase = FinalBossPhase::Phase3;
+            boss.invulnerable = false;
+            boss.phase3ComboStep = 0;
+            boss.phase3ComboTimer = 0.5f; // Brief initial delay
+            boss.ghostPattern = GhostOrbPattern::Spiral;
+            boss.ghostPatternTimer = 0.0f;
+            boss.ghostPatternStep = 0;
+            SpawnGhostOrbs(boss.position);
+            TriggerCameraShake(0.40f, 6.0f);
+        }
+        return;
+    }
+    else if (boss.finalPhase == FinalBossPhase::Transition3F)
+    {
+        boss.transitionTimer -= deltaTime;
+        if (boss.transitionTimer <= 0.0f)
+        {
+            boss.finalPhase = FinalBossPhase::Final;
+            boss.invulnerable = false;
+            boss.finalComboStep = 0;
+            boss.finalComboTimer = 0.5f;
+            boss.bladePrisonTimer = EnemyConfig::BossFinal.bladePrisonCooldown;
+            boss.ghostPattern = GhostOrbPattern::Spiral;
+            boss.ghostPatternTimer = 0.0f;
+            boss.ghostPatternStep = 0;
+            SpawnPermanentGhostOrbs(boss.position); // Permanent ghost orbs!
+            TriggerCameraShake(0.50f, 7.5f);
+        }
+        return;
+    }
+
+    // ==============================================================
+    // 4. Phase Attack Execution
+    // ==============================================================
     if (boss.finalPhase == FinalBossPhase::OrbShield)
     {
         // Boss is invulnerable. Destructible shield orbs handle firing and player must destroy all 4 to proceed!
@@ -5293,43 +5628,212 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
     }
     else if (boss.finalPhase == FinalBossPhase::Phase3)
     {
-        // Phase 3: Ghost Orb Attacks alternating with Blade Attacks
+        // ==========================================================
+        // Phase 3: Ghost Orb Pattern Combo Sequence
+        // Combo: Ghost Spiral -> recovery -> drop 2 blades ->
+        //        Ghost Aimed Sequence -> embedded blade pulse ->
+        //        recovery -> Ghost Cross Fire -> repeat
+        // ==========================================================
+
+        // Handle CrossFire warning/firing
+        if (boss.crossFireWarningActive)
+        {
+            boss.crossFireWarningTimer -= deltaTime;
+            if (boss.crossFireWarningTimer <= 0.0f)
+            {
+                // Fire all ghost orbs at the captured position!
+                boss.crossFireWarningActive = false;
+                for (auto& orb : m_bossOrbs)
+                {
+                    if (!orb.isGhost || !orb.alive) continue;
+                    float cdx = boss.crossFireTarget.x - orb.position.x;
+                    float cdy = boss.crossFireTarget.y - orb.position.y;
+                    float cdist = sqrtf(cdx * cdx + cdy * cdy);
+                    if (cdist < 0.001f) cdist = 1.0f;
+
+                    // Each orb fires 2 projectiles in a tight spread at the captured position
+                    for (int s = -1; s <= 1; s += 2)
+                    {
+                        float cfAngle = atan2f(cdy, cdx) + (float)s * 0.08f;
+                        EnemyProjectile bp;
+                        bp.position = orb.position;
+                        bp.velocity = { cosf(cfAngle) * EnemyConfig::BossFinal.ghostCrossFireBulletSpeed, sinf(cfAngle) * EnemyConfig::BossFinal.ghostCrossFireBulletSpeed };
+                        bp.radius = 12.0f;
+                        bp.damage = 1;
+                        bp.lifetime = 4.5f;
+                        bp.isBossSpiral = true;
+                        m_enemyProjectiles.push_back(bp);
+                    }
+                    orb.flashTimer = 0.15f;
+                }
+                TriggerCameraShake(0.25f, 5.0f);
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+
+                // Stay idle -- the next combo step (Ghost Spiral) explicitly arms firing again
+                HaltGhostOrbFiring();
+            }
+            // During crossfire warning, don't advance combo
+            return;
+        }
+
+        // Ensure ghost orbs are alive
+        bool hasGhosts = false;
+        for (const auto& ob : m_bossOrbs) { if (ob.isGhost) { hasGhosts = true; break; } }
+        if (!hasGhosts) SpawnGhostOrbs(boss.position);
+
+        boss.phase3ComboTimer -= deltaTime;
+        if (boss.phase3ComboTimer <= 0.0f)
+        {
+            // Combo sequence steps
+            // 0: Ghost Spiral
+            // 1: Recovery
+            // 2: Drop 2 blades
+            // 3: Ghost Aimed Sequence
+            // 4: Embedded blade pulse (command shot)
+            // 5: Recovery
+            // 6: Ghost Cross Fire (telegraph)
+            // 7: (crossfire fires after warning — handled above)
+            switch (boss.phase3ComboStep)
+            {
+            case 0: // Ghost Spiral
+                FireGhostSpiral();
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3ComboInterval;
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                break;
+            case 1: // Recovery
+                HaltGhostOrbFiring(); // Stop the spiral's periodic outward fire
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3RecoveryTime;
+                break;
+            case 2: // Drop 2 blades
+                SpawnFinalBossBlades(2);
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3ComboInterval;
+                break;
+            case 3: // Ghost Aimed Sequence
+                FireGhostAimedSequence();
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3ComboInterval + 0.4f; // Extra time for staggered fire
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                break;
+            case 4: // Embedded blade pulse
+                TriggerBladeCommandAimedShot();
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3ComboInterval;
+                break;
+            case 5: // Recovery
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3RecoveryTime;
+                HaltGhostOrbFiring(); // Ensure the Aimed Sequence's staggered shots are done
+                break;
+            case 6: // Ghost Cross Fire telegraph
+                FireGhostCrossFire();
+                boss.crossFireTarget = m_playerPos; // Capture player position NOW
+                boss.crossFireWarningActive = true;
+                boss.crossFireWarningTimer = EnemyConfig::BossFinal.ghostCrossFireWarning;
+                boss.phase3ComboTimer = 0.1f; // Tiny delay then warning takes over
+                break;
+            default:
+                boss.phase3ComboStep = -1; // Will increment to 0
+                boss.phase3ComboTimer = EnemyConfig::BossFinal.phase3RecoveryTime;
+                break;
+            }
+            boss.phase3ComboStep++;
+            if (boss.phase3ComboStep > 7) boss.phase3ComboStep = 0;
+        }
+
+        // Also fire boss's own 5-way fan periodically during Phase 3
         boss.finalAttackTimer -= deltaTime;
         if (boss.finalAttackTimer <= 0.0f)
         {
-            boss.finalAttackTimer = EnemyConfig::BossFinal.phase3AttackInterval;
-            boss.finalAttackStep = (boss.finalAttackStep + 1) % 2;
-
-            if (boss.finalAttackStep == 0)
+            boss.finalAttackTimer = 3.2f; // Slower boss attacks — ghost orbs provide main pressure
+            float bdx = m_playerPos.x - boss.position.x;
+            float bdy = m_playerPos.y - boss.position.y;
+            float baseAngle = atan2f(bdy, bdx);
+            for (int p = -2; p <= 2; ++p)
             {
-                // Ghost Orb burst trigger / refresh
-                bool hasGhosts = false;
-                for (const auto& ob : m_bossOrbs) { if (ob.isGhost) { hasGhosts = true; break; } }
-                if (!hasGhosts)
-                {
-                    SpawnGhostOrbs(boss.position);
-                }
+                float angle = baseAngle + (float)p * 0.16f;
+                EnemyProjectile bp;
+                bp.position = boss.position;
+                bp.velocity = { cosf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed, sinf(angle) * EnemyConfig::BossFinal.phase1BulletSpeed };
+                bp.radius = 12.0f;
+                bp.damage = 1;
+                bp.lifetime = 4.8f;
+                bp.isBossSpiral = true;
+                m_enemyProjectiles.push_back(bp);
             }
-            else
-            {
-                // Blade Drop sequence
-                SpawnFinalBossBlades(2);
-                TriggerBladeCommandAimedShot();
-            }
+            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
         }
     }
     else if (boss.finalPhase == FinalBossPhase::Final)
     {
-        // Final Phase: Combined Chaos Loop + Special BLADE PRISON Attack
-        boss.finalAttackTimer -= deltaTime;
-        if (boss.finalAttackTimer <= 0.0f)
-        {
-            boss.finalAttackTimer = 1.7f;
-            boss.finalAttackStep = (boss.finalAttackStep + 1) % 3;
+        // ==========================================================
+        // Final Phase: Permanent Ghost Orbs + All Attacks Combined
+        // Combo: Ghost Spiral -> Falling Blades -> Boss Radial Burst ->
+        //        Embedded Blade Pulse -> Ghost Cross Fire -> Boss Fan Attack -> repeat
+        // Recovery times ~25% shorter than Phase 3
+        // ==========================================================
 
-            if (boss.finalAttackStep == 0)
+        // Handle CrossFire warning/firing (same logic as Phase 3)
+        if (boss.crossFireWarningActive)
+        {
+            boss.crossFireWarningTimer -= deltaTime;
+            if (boss.crossFireWarningTimer <= 0.0f)
             {
-                // 8-dir radial burst
+                boss.crossFireWarningActive = false;
+                for (auto& orb : m_bossOrbs)
+                {
+                    if (!orb.isGhost || !orb.alive) continue;
+                    float cdx = boss.crossFireTarget.x - orb.position.x;
+                    float cdy = boss.crossFireTarget.y - orb.position.y;
+                    float cdist = sqrtf(cdx * cdx + cdy * cdy);
+                    if (cdist < 0.001f) cdist = 1.0f;
+
+                    for (int s = -1; s <= 1; s += 2)
+                    {
+                        float cfAngle = atan2f(cdy, cdx) + (float)s * 0.08f;
+                        EnemyProjectile bp;
+                        bp.position = orb.position;
+                        bp.velocity = { cosf(cfAngle) * EnemyConfig::BossFinal.ghostCrossFireBulletSpeed, sinf(cfAngle) * EnemyConfig::BossFinal.ghostCrossFireBulletSpeed };
+                        bp.radius = 12.0f;
+                        bp.damage = 1;
+                        bp.lifetime = 4.5f;
+                        bp.isBossSpiral = true;
+                        m_enemyProjectiles.push_back(bp);
+                    }
+                    orb.flashTimer = 0.15f;
+                }
+                TriggerCameraShake(0.25f, 5.0f);
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                HaltGhostOrbFiring(); // Stay idle -- next Ghost Spiral combo step arms firing again
+            }
+            return;
+        }
+
+        // Ensure permanent ghost orbs exist
+        bool hasGhosts = false;
+        for (const auto& ob : m_bossOrbs) { if (ob.isGhost) { hasGhosts = true; break; } }
+        if (!hasGhosts) SpawnPermanentGhostOrbs(boss.position);
+
+        boss.finalComboTimer -= deltaTime;
+        if (boss.finalComboTimer <= 0.0f)
+        {
+            // Final Phase combo sequence (6 steps, looping):
+            // 0: Ghost Spiral
+            // 1: Falling Blades (2 blades)
+            // 2: Boss 8-dir Radial Burst
+            // 3: Embedded Blade Pulse (command shot)
+            // 4: Ghost Cross Fire (telegraph)
+            // 5: Boss 5-way Fan Attack
+            switch (boss.finalComboStep)
+            {
+            case 0: // Ghost Spiral
+                FireGhostSpiral();
+                boss.finalComboTimer = EnemyConfig::BossFinal.finalComboInterval;
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                break;
+            case 1: // Falling Blades
+                HaltGhostOrbFiring(); // Stop the spiral's periodic outward fire
+                SpawnFinalBossBlades(2);
+                boss.finalComboTimer = EnemyConfig::BossFinal.finalComboInterval;
+                break;
+            case 2: // Boss 8-dir Radial Burst
+            {
                 float startRot = m_totalTime * 2.0f;
                 for (int p = 0; p < 8; ++p)
                 {
@@ -5343,10 +5847,23 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
                     bp.isBossSpiral = true;
                     m_enemyProjectiles.push_back(bp);
                 }
+                boss.finalComboTimer = EnemyConfig::BossFinal.finalComboInterval;
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                break;
             }
-            else if (boss.finalAttackStep == 1)
+            case 3: // Embedded Blade Pulse
+                TriggerBladeCommandAimedShot();
+                boss.finalComboTimer = EnemyConfig::BossFinal.finalRecoveryTime;
+                break;
+            case 4: // Ghost Cross Fire telegraph
+                FireGhostCrossFire();
+                boss.crossFireTarget = m_playerPos;
+                boss.crossFireWarningActive = true;
+                boss.crossFireWarningTimer = EnemyConfig::BossFinal.ghostCrossFireWarning;
+                boss.finalComboTimer = 0.1f;
+                break;
+            case 5: // Boss 5-way Fan Attack
             {
-                // 5-way fan
                 float bdx = m_playerPos.x - boss.position.x;
                 float bdy = m_playerPos.y - boss.position.y;
                 float baseAngle = atan2f(bdy, bdx);
@@ -5362,17 +5879,20 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
                     bp.isBossSpiral = true;
                     m_enemyProjectiles.push_back(bp);
                 }
+                boss.finalComboTimer = EnemyConfig::BossFinal.finalRecoveryTime;
+                if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+                break;
             }
-            else
-            {
-                // 2 Falling blades + Command shot
-                SpawnFinalBossBlades(2);
-                TriggerBladeCommandAimedShot();
+            default:
+                boss.finalComboStep = -1;
+                boss.finalComboTimer = EnemyConfig::BossFinal.finalRecoveryTime;
+                break;
             }
-            if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+            boss.finalComboStep++;
+            if (boss.finalComboStep > 6) boss.finalComboStep = 0;
         }
 
-        // Special Attack: BLADE PRISON
+        // Special Attack: BLADE PRISON (periodic)
         boss.bladePrisonTimer -= deltaTime;
         if (boss.bladePrisonTimer <= 0.0f)
         {
@@ -5399,3 +5919,5 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
         }
     }
 }
+
+

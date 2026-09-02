@@ -967,8 +967,8 @@ void UpgradeTree::SetupNodes()
         n.id = 41;
         n.title = "PLASMA FORCE SHIELD";
         n.categoryName = "DEFENSE / SHIELD";
-        n.description = "Deploys a plasma shield bubble absorbing 1 incoming hit every 10 seconds.";
-        n.effectFormat = "Absorbs 1 Hit (10s Recharge)";
+        n.description = "Deploys a plasma shield bubble absorbing 1 incoming hit every 18 seconds.";
+        n.effectFormat = "Absorbs 1 Hit (18s Recharge)";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Shield;
         n.gridPos = { -1.6f, -1.1f };
@@ -983,8 +983,8 @@ void UpgradeTree::SetupNodes()
         n.id = 42;
         n.title = "DEFLECTOR MATRIX";
         n.categoryName = "DEFENSE / SHIELD";
-        n.description = "Shield-deflected projectiles reflect back towards attackers as kinetic bolts.";
-        n.effectFormat = "Reflects Blocked Bullets at Enemies";
+        n.description = "Shield-deflected projectiles reflect back towards attackers as kinetic bolts, dealing half their normal impact damage.";
+        n.effectFormat = "Reflects Blocked Bullets (50% Damage)";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Barrier;
         n.gridPos = { -2.6f, -1.1f };
@@ -1099,14 +1099,14 @@ void UpgradeTree::SetupNodes()
         n.id = 49;
         n.title = "EMP PULSE GENERATOR";
         n.categoryName = "DEFENSE / EMP";
-        n.description = "Periodically emits an electromagnetic pulse clearing bullets and damaging foes.";
-        n.effectFormat = "Bullet-Clearing EMP Wave Every 9s";
+        n.description = "Periodically emits an electromagnetic pulse that clears nearby enemy projectiles. Deals no significant damage to enemies or bosses.";
+        n.effectFormat = "Clears Nearby Bullets Every 16s";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Shockwave;
         n.gridPos = { -1.6f, 1.1f };
         n.maxLevel = 1;
         n.levelCosts = { { 55, 6, 2, 0, 0 } };
-        n.levelValues = { 45.0f };
+        n.levelValues = { 1.0f };
         n.prerequisiteIds = { 40 };
         m_nodes.push_back(n);
     }
@@ -1137,8 +1137,8 @@ void UpgradeTree::SetupNodes()
         n.id = 96;
         n.title = "ORBITAL FORTRESS CITADEL";
         n.categoryName = "CAPSTONE / ULTIMATE";
-        n.description = "3 Heavy Turrets + Reflector Barrier + Continuous EMP form an impregnable fortress.";
-        n.effectFormat = "Citadel: 3 Turrets, Shield & Constant EMP";
+        n.description = "3 Heavy Turrets + Reflector Barrier form an impregnable fortress, with Shield and EMP systems recharging significantly faster.";
+        n.effectFormat = "3 Turrets, +25% Shield & +20% EMP Recharge Speed";
         n.branch = NodeBranch::West_Defense;
         n.icon = NodeIconType::Star;
         n.gridPos = { -6.1f, 0.0f };
@@ -1406,6 +1406,7 @@ void UpgradeTree::ApplyStats(PlayerStats& outStats) const
     outStats.maxShield = 0;
     outStats.shieldBubbleUnlocked = false;
     outStats.reflectiveShield = false;
+    outStats.shieldRechargeTime = 18.0f;
     outStats.turretCount = 0;
     outStats.turretRange = 260.0f;
     outStats.turretDamage = 35.0f;
@@ -1414,8 +1415,8 @@ void UpgradeTree::ApplyStats(PlayerStats& outStats) const
 
     outStats.shockwaveUnlocked = false;
     outStats.shockwaveRadius = 220.0f;
-    outStats.shockwaveDamage = 45.0f;
-    outStats.shockwaveInterval = 9.0f;
+    outStats.shockwaveDamage = 0.0f;    // EMP clears projectiles only; it does not deal meaningful damage
+    outStats.shockwaveInterval = 16.0f;
 
     // Reset Cross-Branch Hybrids
     outStats.laserExcavator = false;
@@ -1499,9 +1500,9 @@ void UpgradeTree::ApplyStats(PlayerStats& outStats) const
             case 46: outStats.turretSpec = TurretSpec::Mining; outStats.turretDamage += 25.0f; break;
             case 47: outStats.turretSpec = TurretSpec::Plasma; outStats.turretDamage += 40.0f; break;
             case 48: outStats.turretCount = 3; break;
-            case 49: outStats.shockwaveUnlocked = true; outStats.shockwaveDamage = 45.0f; break;
+            case 49: outStats.shockwaveUnlocked = true; break; // EMP clears projectiles only, no meaningful damage
             case 50: outStats.turretDamage += 40.0f; outStats.turretRange += 100.0f; break;
-            case 96: outStats.activeCapstone = 4; outStats.turretCount = 3; outStats.reflectiveShield = true; outStats.shockwaveUnlocked = true; break;
+            case 96: outStats.activeCapstone = 4; outStats.turretCount = 3; outStats.reflectiveShield = true; outStats.shieldRechargeTime *= 0.75f; outStats.shockwaveInterval *= 0.80f; break; // 3 Turrets + 25% faster Shield Recharge + 20% faster EMP Recharge
 
             // Hybrids
             case 51: outStats.laserExcavator = true; break;

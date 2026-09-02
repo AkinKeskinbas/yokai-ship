@@ -94,6 +94,7 @@ struct PlayerStats
     int maxShield = 0;
     bool shieldBubbleUnlocked = false;
     bool reflectiveShield = false;      // Engellenen mermiler geri yansır
+    float shieldRechargeTime = 18.0f;   // Kalkan 1 vuruş emdikten sonra yeniden dolma süresi (s)
     int turretCount = 0;
     float turretRange = 260.0f;
     float turretDamage = 35.0f;
@@ -103,8 +104,8 @@ struct PlayerStats
     // Shockwave Pulse system
     bool shockwaveUnlocked = false;
     float shockwaveRadius = 220.0f;
-    float shockwaveDamage = 45.0f;
-    float shockwaveInterval = 9.0f;
+    float shockwaveDamage = 0.0f;       // EMP clears projectiles only; no meaningful enemy/boss damage
+    float shockwaveInterval = 16.0f;
 
     // Cross-Branch Hybrids
     bool laserExcavator = false;        // Asteroitlere +100% lazer hasarı
@@ -146,9 +147,20 @@ enum class FinalBossPhase
 {
     OrbShield,    // Phase 0: 4 destructible orbiting cores, boss invulnerable
     Phase1,       // Phase 1: 100% -> 70% HP (5-way fan & 8-dir radial bursts)
+    Transition12, // Transition: Phase 1 -> Phase 2 (invulnerable, 0.8s)
     Phase2,       // Phase 2: 70% -> 40% HP (falling & embedded blade hazards)
-    Phase3,       // Phase 3: 40% -> 15% HP (temporary ghost orb emitters + blade hazards)
-    Final         // Final Phase: 15% -> 0% HP (all-out chaos + special BLADE PRISON attack)
+    Transition23, // Transition: Phase 2 -> Phase 3 (invulnerable, 0.8s)
+    Phase3,       // Phase 3: 40% -> 15% HP (ghost orb emitters + blade combo sequences)
+    Transition3F, // Transition: Phase 3 -> Final (invulnerable, 0.8s)
+    Final         // Final Phase: 15% -> 0% HP (permanent ghost orbs + all attacks combined)
+};
+
+// Ghost Orb Attack Pattern Sequencer
+enum class GhostOrbPattern
+{
+    Spiral,       // Rotating spiral: orbs orbit and fire outward periodically
+    AimedSequence,// Orbs fire 3-way spreads one after another toward player
+    CrossFire     // Orbs stop at cardinal positions, telegraph, fire at captured player pos
 };
 
 // Final Boss Orbital Core (Phase 0 shield & Phase 3 ghost emitter)
@@ -166,8 +178,9 @@ struct BossOrb
     int attackPattern = 0;        // 0: Aimed 1-shot, 1: 3-way spread, 2: 6-way radial burst
     float flashTimer = 0.0f;
     bool alive = true;
-    bool isGhost = false;         // Phase 3 temporary invulnerable ghost emitter
-    float ghostLifetime = 0.0f;
+    bool isGhost = false;         // Phase 3+ invulnerable ghost emitter
+    float ghostLifetime = 0.0f;   // Only used if not permanent
+    bool isPermanent = false;     // True in Final Phase: ghost orbs never expire
 };
 
 // Final Boss Falling Blade Hazard
@@ -277,6 +290,17 @@ struct Asteroid
     float bladePrisonTimer = 0.0f;
     float ghostOrbTimer = 0.0f;
     int finalAttackStep = 0;
+    float transitionTimer = 0.0f;       // Phase transition countdown (0.8s)
+    GhostOrbPattern ghostPattern = GhostOrbPattern::Spiral; // Current ghost orb attack pattern
+    float ghostPatternTimer = 0.0f;     // Timer for ghost pattern sequencing
+    int ghostPatternStep = 0;           // Sub-step within ghost pattern
+    int phase3ComboStep = 0;            // Phase 3 combo attack sequence index
+    float phase3ComboTimer = 0.0f;      // Phase 3 combo sequence timer
+    int finalComboStep = 0;             // Final phase combo attack sequence index
+    float finalComboTimer = 0.0f;       // Final phase combo sequence timer
+    DirectX::XMFLOAT2 crossFireTarget{0.0f, 0.0f}; // Captured player pos for CrossFire telegraph
+    float crossFireWarningTimer = 0.0f; // CrossFire telegraph warning countdown
+    bool crossFireWarningActive = false;// CrossFire telegraph is showing
 
     // Weakpoint & Anomalies
     bool hasWeakpoint = false;
@@ -429,6 +453,8 @@ struct DamagePopup
     float lifetime = 0.0f;
     float maxLifetime = 0.80f;
     DirectX::XMFLOAT4 color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    bool isTextLabel = false;   // When true, renders `label` via matrix font instead of a damage number
+    std::string label;
 };
 
 // Expedition / Run Statistics Tracker
@@ -457,9 +483,11 @@ public:
     void Draw();
 
     void DamagePlayer(int amount);
+    void ConsumeShieldCharge(bool reflected); // Pops the shield (1 hit), restarts its recharge, shows a popup
     void TriggerCameraShake(float duration, float intensity);
     void SpawnDamagePopup(const DirectX::XMFLOAT2& pos, int damage, bool isCrit, bool isWeakpoint = false, bool isMining = false);
-    void TriggerShockwave(const DirectX::XMFLOAT2& center, float maxRadius, float damage);
+    void SpawnTextPopup(const DirectX::XMFLOAT2& pos, const char* text, const DirectX::XMFLOAT4& color);
+    void TriggerShockwave(const DirectX::XMFLOAT2& center, float maxRadius, float damage, bool affectEnemies = true);
 
 private:
     // Game loops & state management
@@ -487,6 +515,12 @@ private:
     void SpawnFinalBossBlades(int count, bool isPrison = false);
     void TriggerBladeCommandAimedShot();
     void SpawnGhostOrbs(const DirectX::XMFLOAT2& bossPos);
+    void SpawnPermanentGhostOrbs(const DirectX::XMFLOAT2& bossPos); // Final Phase permanent ghosts
+    void FireGhostSpiral();                // Ghost Pattern 1: rotating spiral shot
+    void FireGhostAimedSequence();         // Ghost Pattern 2: sequential 3-way aimed spreads
+    void FireGhostCrossFire();             // Ghost Pattern 3: cardinal stop + telegraphed volley
+    void HaltGhostOrbFiring();             // Disarm ghost orb auto-fire between combo steps
+    void ClampFinalBossHpFloor(Asteroid& ast); // Enforce per-phase HP floor so no damage source can skip a phase
 
     // Helper functions
     float RandomFloat(float min, float max);

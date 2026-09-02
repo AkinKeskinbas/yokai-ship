@@ -13,8 +13,8 @@ namespace EnemyConfig
     // ========================================================================
     // 1. TEST VE DEBUG AYARLARI (TEST & DEBUG SETTINGS)
     // ==================================================================    // Test Modu: Oyunu baslatir baslatmaz Sektor 3 Boss'unu (Torii Yokai) spawn eder.
-    inline constexpr bool TEST_SPAWN_BOSS2_AT_START = false;
-    inline constexpr int  TEST_BOSS_TYPE             = 3;     // 1: Boss 1, 2: Boss 2, 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
+    inline constexpr bool TEST_SPAWN_BOSS2_AT_START = true;
+    inline constexpr int  TEST_BOSS_TYPE             = 4;     // 1: Boss 1, 2: Boss 2, 3: Boss 3 (Torii Yokai), 4: Final Boss (Kitsune Yokai)
 
     // ========================================================================
     // 2. NORMAL DÜŞMAN DRONE AYARLARI (ENEMY DRONE 1 CONFIG)
@@ -159,7 +159,7 @@ namespace EnemyConfig
     // ========================================================================
     struct BossFinalStats
     {
-        float baseHp                    = 2200.0f;  // Final Boss Canı
+        float baseHp                    = 3000.0f;  // Final Boss HP (~35% increase for phase-gated fight)
         float hpPerSectorLevel          = 600.0f;   // Sektör başına ek can
         float scale                     = 0.28f;    // Görsel boyutu (final_boss.png)
         float radius                    = 95.0f;    // Çarpışma yarıçapı
@@ -192,12 +192,27 @@ namespace EnemyConfig
         int   maxEmbeddedBlades         = 4;        // Sahada aynı anda bulunabilecek maksimum saplı kılıç
         float bladeLifetime             = 14.0f;    // Kılıcın sahadan silinme süresi
 
-        // Faz 3: Hayalet Orblar (40% -> 15% HP)
-        float phase3GhostDuration       = 7.0f;     // Hayalet orbların sahnede kalma süresi
-        float phase3AttackInterval      = 2.6f;
+        // Phase Damage Gating (HP cannot fall below these thresholds during each phase)
+        float phase1HpFloor             = 0.70f;    // Phase 1: HP cannot drop below 70%
+        float phase2HpFloor             = 0.40f;    // Phase 2: HP cannot drop below 40%
+        float phase3HpFloor             = 0.15f;    // Phase 3: HP cannot drop below 15%
+        float transitionDuration        = 0.8f;     // Phase transition invulnerability duration
 
-        // Final Fazı & Kılıç Hapishanesi (15% -> 0% HP)
-        float bladePrisonCooldown       = 9.0f;     // Blade Prison özel saldırı bekleme süresi
+        // Phase 3: Ghost Orb Patterns + Blade Combo (40% -> 15% HP)
+        float ghostOrbOrbitSpeed         = 1.4f;     // Ghost orb orbit speed (rad/s)
+        float ghostOrbBulletSpeed        = 260.0f;   // Ghost orb projectile speed (Spiral & Aimed Sequence)
+        float ghostSpiralFireInterval    = 0.45f;    // Spiral pattern: time between each orb shot
+        float ghostAimedSequenceDelay    = 0.25f;    // Aimed Sequence: delay between each orb firing
+        float ghostCrossFireWarning      = 0.6f;     // CrossFire: warning telegraph duration
+        float ghostCrossFireBulletSpeed  = 320.0f;   // CrossFire: projectile speed
+        float phase3ComboInterval        = 1.2f;     // Time between combo sequence steps in Phase 3
+        float phase3RecoveryTime         = 0.8f;     // Short recovery pause between combo elements
+
+        // Final Phase: Permanent Ghost Orbs + All Attacks (15% -> 0% HP)
+        float finalGhostOrbitSpeed       = 1.8f;     // Faster ghost orbit in Final Phase
+        float finalComboInterval         = 0.9f;     // ~25% faster combo cadence than Phase 3
+        float finalRecoveryTime          = 0.6f;     // ~25% shorter recovery than Phase 3
+        float bladePrisonCooldown        = 9.0f;     // Blade Prison special attack cooldown
 
         // Final Boss Ödül / Drop Miktarları
         int   reishiDropCount           = 60;
