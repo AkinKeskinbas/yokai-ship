@@ -625,6 +625,20 @@ int Game::RandomInt(int min, int max)
 
 void Game::Update(float deltaTime)
 {
+    // Ship/boss explosion stings are cut short after a fixed duration -- pat.mpeg and shoot.wav
+    // run longer than wanted for these moments, and this trims them without touching the actual
+    // audio files. Ticks every frame regardless of scene/pause state.
+    if (m_shipDeathSoundTimer > 0.0f)
+    {
+        m_shipDeathSoundTimer -= deltaTime;
+        if (m_shipDeathSoundTimer <= 0.0f && m_soundShoot != -1) StopAudio(m_soundShoot);
+    }
+    if (m_bossDeathSoundTimer > 0.0f)
+    {
+        m_bossDeathSoundTimer -= deltaTime;
+        if (m_bossDeathSoundTimer <= 0.0f && m_soundPat != -1) StopAudio(m_soundPat);
+    }
+
     if (m_currentScene == GameScene::Gameplay)
     {
         if (InputKeyboard_IsTrigger(KK_U) || InputKeyboard_IsTrigger(KK_TAB))
@@ -1586,7 +1600,11 @@ void Game::UpdateGameplay(float deltaTime)
                     coreExp.textureSequence = m_texExplosions;
                     m_vfxs.push_back(coreExp);
 
-                    if (m_soundPat != -1) PlayAudio(m_soundPat);
+                    if (m_soundPat != -1)
+                    {
+                        PlayAudio(m_soundPat);
+                        m_bossDeathSoundTimer = 0.6f; // Trim the explosion sting short
+                    }
 
                     // Drops calculation
                     int reishiDropCount = (it->bossType == 4) ? EnemyConfig::BossFinal.reishiDropCount : (it->bossType == 3) ? EnemyConfig::Boss3.reishiDropCount : (it->bossType == 2) ? EnemyConfig::Boss2.reishiDropCount : EnemyConfig::Boss1.reishiDropCount;
@@ -2025,15 +2043,38 @@ void Game::UpdateGameplay(float deltaTime)
                         it->position.x = (float)SCREEN_WIDTH * 0.5f;
                         it->position.y = EnemyConfig::Boss3.hoverY;
 
-                        // Branch attack type based on HP percentage
-                        if (hpPct > 0.70f)
+                        // Decide which attack phase HP allows next (never backwards -- the HP
+                        // floor in ClampFinalBossHpFloor already prevents skipping ahead), then
+                        // pause briefly & invulnerable so the player clearly sees the change
+                        // before the next attack begins.
+                        int nextPhase = (hpPct > 0.70f) ? 1 : (hpPct > 0.40f) ? 2 : 3;
+                        it->boss3PhaseReached = std::max(it->boss3PhaseReached, nextPhase);
+                        it->boss3PendingPhase = nextPhase;
+
+                        it->bossPhase = BossPhase::PhaseTransition;
+                        it->bossPhaseTimer = 0.8f;
+                        it->invulnerable = true;
+                        it->flashTimer = 0.3f;
+                        TriggerCameraShake(0.30f, 5.5f);
+                        TriggerShockwave(it->position, 200.0f, 0.0f);
+                    }
+                }
+                else if (it->bossPhase == BossPhase::PhaseTransition)
+                {
+                    it->position.y = EnemyConfig::Boss3.hoverY + sinf(m_totalTime * 3.0f) * 3.0f;
+                    it->bossPhaseTimer -= deltaTime;
+                    if (it->bossPhaseTimer <= 0.0f)
+                    {
+                        it->invulnerable = false;
+
+                        if (it->boss3PendingPhase == 1)
                         {
                             // Phase 1: Aimed Sweeping Laser
                             it->bossPhase = BossPhase::LaserTrack;
                             it->bossPhaseTimer = EnemyConfig::Boss3.aimTrackingDuration;
                             it->bossLaserAngle = 1.5707963f; // 90 deg, pointing straight down
                         }
-                        else if (hpPct > 0.40f)
+                        else if (it->boss3PendingPhase == 2)
                         {
                             // Phase 2: Super High-Density Vertical Laser Curtain Wall (16 columns across screen)
                             it->bossPhase = BossPhase::CurtainWarning;
@@ -3603,12 +3644,13 @@ void Game::UpdateTurrets(float deltaTime)
             Enemy* targetEnemy = nullptr;
             Asteroid* targetAst = nullptr;
 
-            // Mining Turret prioritizes asteroids
+            // Mining Turret prioritizes asteroids (never bosses -- turrets should never chip
+            // away at a scripted boss encounter, only farm regular asteroids and fight drones)
             if (turret.spec == TurretSpec::Mining)
             {
                 for (auto& ast : m_asteroids)
                 {
-                    if (ast.destroyed) continue;
+                    if (ast.destroyed || ast.isBoss) continue;
                     float dx = ast.position.x - turret.position.x;
                     float dy = ast.position.y - turret.position.y;
                     float dist = sqrtf(dx * dx + dy * dy);
@@ -3642,7 +3684,7 @@ void Game::UpdateTurrets(float deltaTime)
                 {
                     for (auto& ast : m_asteroids)
                     {
-                        if (ast.destroyed) continue;
+                        if (ast.destroyed || ast.isBoss) continue;
                         float dx = ast.position.x - turret.position.x;
                         float dy = ast.position.y - turret.position.y;
                         float dist = sqrtf(dx * dx + dy * dy);
@@ -3784,7 +3826,11 @@ void Game::DamagePlayer(int amount)
         exp.textureSequence = m_texExplosions;
         m_vfxs.push_back(exp);
 
-        if (m_soundShoot != -1) PlayAudio(m_soundShoot);
+        if (m_soundShoot != -1)
+        {
+            PlayAudio(m_soundShoot);
+            m_shipDeathSoundTimer = 0.5f; // Trim the explosion sting short
+        }
     }
 }
 
@@ -4101,8 +4147,10 @@ void Game::DrawSkillBar()
             {
                 float cdPct = slot.cooldownTimer / slot.maxCooldown;
                 Sprite_DrawRect(x, y + cardH * (1.0f - cdPct), cardW, cardH * cdPct, { 0.05f, 0.03f, 0.08f, 0.80f });
+                // 2 digits: single-digit display was doing (seconds % 10), so a 20s cooldown
+                // visibly counted down from 9 to 0 TWICE instead of once from 20.
                 int cdSec = (int)ceilf(slot.cooldownTimer);
-                DrawNumber(x + cardW * 0.5f - 8.0f, y + cardH * 0.5f - 8.0f, cdSec, 1, 14.0f, m_texNumber, { 1.0f, 0.4f, 0.4f, 1.0f });
+                DrawNumber(x + cardW * 0.5f - 15.0f, y + cardH * 0.5f - 8.0f, cdSec, 2, 14.0f, m_texNumber, { 1.0f, 0.4f, 0.4f, 1.0f });
             }
         }
         else
@@ -4354,8 +4402,9 @@ void Game::DrawGameplay()
                 }
             }
 
-            // Boss 4: Golden Celestial Barrier Shield when invulnerable
-            if (ast.bossType == 4 && ast.invulnerable)
+            // Golden Celestial Barrier Shield whenever a boss is invulnerable (OrbShield /
+            // phase transitions), so the player can see WHY hits aren't registering
+            if (ast.invulnerable)
             {
                 float shieldRad = ast.radius * 1.35f;
                 float pulse = sinf(m_totalTime * 6.0f) * 0.15f + 0.85f;
@@ -4380,12 +4429,20 @@ void Game::DrawGameplay()
             Sprite_DrawRect(barX, barY, barW * hpPct, barH, { 1.0f, 0.2f, 0.25f, 1.0f });
 
             // Boss Title Badge
-            const char* bossTitle = (ast.bossType == 4)
-                ? (ast.invulnerable ? "BOSS IV : KITSUNE YOKAI [ SHIELD ACTIVE ]" : "BOSS IV : KITSUNE YOKAI")
+            const char* bossName = (ast.bossType == 4) ? "BOSS IV : KITSUNE YOKAI"
                 : (ast.bossType == 3) ? "BOSS III : TORII YOKAI"
                 : (ast.bossType == 2) ? "BOSS II : VOID DESTROYER"
                 : "BOSS I : GARGANTUAN";
-            DrawMatrixString(barX - 10.0f, barY - 14.0f, bossTitle, 1.3f, m_texLaser, { 1.0f, 0.85f, 0.3f, 1.0f });
+            char bossTitleBuf[64];
+            if (ast.invulnerable)
+            {
+                sprintf_s(bossTitleBuf, "%s [ SHIELD ACTIVE ]", bossName);
+            }
+            else
+            {
+                sprintf_s(bossTitleBuf, "%s", bossName);
+            }
+            DrawMatrixString(barX - 10.0f, barY - 14.0f, bossTitleBuf, 1.3f, m_texLaser, { 1.0f, 0.85f, 0.3f, 1.0f });
         }
         else if (m_texAsteroid != -1)
         {
@@ -6122,16 +6179,30 @@ void Game::ClampFinalBossHpFloor(Asteroid& ast)
 {
     // Enforce the per-phase HP floor on every damage path (lasers, pierce, chain, turrets,
     // dash impacts, ...) so high player DPS can never skip a phase transition.
-    if (!(ast.isBoss && ast.bossType == 4) || ast.hp <= 0.0f) return;
+    if (!ast.isBoss || ast.hp <= 0.0f) return;
 
     float maxHp = ast.maxHp;
     float hpFloor = 0.0f;
-    if (ast.finalPhase == FinalBossPhase::Phase1)
-        hpFloor = maxHp * EnemyConfig::BossFinal.phase1HpFloor;
-    else if (ast.finalPhase == FinalBossPhase::Phase2)
-        hpFloor = maxHp * EnemyConfig::BossFinal.phase2HpFloor;
-    else if (ast.finalPhase == FinalBossPhase::Phase3)
-        hpFloor = maxHp * EnemyConfig::BossFinal.phase3HpFloor;
+
+    if (ast.bossType == 4)
+    {
+        if (ast.finalPhase == FinalBossPhase::Phase1)
+            hpFloor = maxHp * EnemyConfig::BossFinal.phase1HpFloor;
+        else if (ast.finalPhase == FinalBossPhase::Phase2)
+            hpFloor = maxHp * EnemyConfig::BossFinal.phase2HpFloor;
+        else if (ast.finalPhase == FinalBossPhase::Phase3)
+            hpFloor = maxHp * EnemyConfig::BossFinal.phase3HpFloor;
+    }
+    else if (ast.bossType == 3)
+    {
+        // Same idea as the Final Boss: the boss can't be damaged past the floor of whichever
+        // laser phase it has actually reached, so high DPS can't burst straight from Phase 1 to
+        // Phase 3 without the player ever seeing the Phase 2 curtain wall.
+        if (ast.boss3PhaseReached <= 1)
+            hpFloor = maxHp * 0.70f;
+        else if (ast.boss3PhaseReached == 2)
+            hpFloor = maxHp * 0.40f;
+    }
 
     if (hpFloor > 0.0f && ast.hp < hpFloor)
         ast.hp = hpFloor;

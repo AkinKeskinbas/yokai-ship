@@ -116,7 +116,7 @@ namespace EnemyConfig
         float scale                 = 0.30f;    // Görsel boyutu (boss3.png)
         float radius                = 92.0f;    // Çarpışma yarıçapı
         float moveSpeed             = 120.0f;   // Tepede süzülme hızı
-        float hoverY                = 150.0f;   // Tepedeki Y yüksekliği
+        float hoverY                = 235.0f;   // Tepedeki Y yüksekliği (boss3.png + scale ile HP barı ekran dışına taşmasın diye yükseltildi)
         int   collisionDamage       = 1;        // Çarpışma hasarı
 
         // Faz 1: Aimed Sweeping Laser (HP > 70%)
@@ -164,7 +164,7 @@ namespace EnemyConfig
         float scale                     = 0.28f;    // Görsel boyutu (final_boss.png)
         float radius                    = 95.0f;    // Çarpışma yarıçapı
         float moveSpeed                 = 80.0f;    // Üst bölgede gezinme hızı
-        float hoverY                    = 160.0f;   // Tepedeki Y yüksekliği
+        float hoverY                    = 270.0f;   // Tepedeki Y yüksekliği (final_boss.png + scale ile HP barı ekran dışına taşmasın diye yükseltildi)
         int   collisionDamage           = 1;        // Çarpışma hasarı
 
         // Faz 0: Koruyucu Orb Kalkanı (Orb Shield)

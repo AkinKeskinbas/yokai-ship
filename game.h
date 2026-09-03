@@ -189,7 +189,8 @@ enum class BossPhase
     CurtainWarning, // Boss 3 Phase 2: Vertical laser curtain telegraph (safe gap highlighted in green)
     CurtainFire,    // Boss 3 Phase 2: Vertical laser curtain active firing
     GridWarning,    // Boss 3 Phase 3: Crosshatch laser matrix telegraph (safe pocket highlighted in green)
-    GridFire        // Boss 3 Phase 3: Crosshatch laser matrix active firing
+    GridFire,       // Boss 3 Phase 3: Crosshatch laser matrix active firing
+    PhaseTransition // Boss 3: brief invulnerable pause between phases so the player can register the change
 };
 
 // Final Boss (Boss 4 - Kitsune Yokai) Phase State Machine
@@ -329,6 +330,8 @@ struct Asteroid
     float bossLaserDamageTimer = 0.0f;
     int boss3SafeGapIndex = 2;
     int boss3SafeGapIndex2 = 7;
+    int boss3PhaseReached = 1;  // Highest laser phase (1-3) actually entered so far -- damage floor gate
+    int boss3PendingPhase = 1;  // Which phase to enter once the current PhaseTransition pause ends
     DirectX::XMFLOAT2 boss3SafePos{ 800.0f, 600.0f };
 
     // Final Boss (Boss 4) State Machine & Timers
@@ -657,6 +660,8 @@ private:
     int m_soundPat = -1;          // pat.mpeg (enemy death sound)
     int m_soundClick = -1;        // retroClick.mpeg (UI/upgrade click sound)
     int m_soundMusic = -1;        // gameMusic.mpeg (background music)
+    float m_shipDeathSoundTimer = 0.0f; // Cuts the ship explosion sting short
+    float m_bossDeathSoundTimer = 0.0f; // Cuts the boss explosion sting short
 
     // Player state & Upgrade Tree
     DirectX::XMFLOAT2 m_playerPos{ 800.0f, 450.0f };
