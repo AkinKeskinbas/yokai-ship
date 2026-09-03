@@ -403,7 +403,9 @@ void Game::ResetRun()
     // consistent with that sector), and fill resources so upgrades/skills can be tested freely.
     if (EnemyConfig::TEST_SPAWN_BOSS2_AT_START)
     {
-        m_calamity.level = std::clamp(EnemyConfig::TEST_BOSS_TYPE, 1, 4);
+        // TEST_BOSS_TYPE == 5 tests the Sector 5 Boss Rush (TriggerBossEncounter's multi-boss
+        // path keys off m_calamity.level >= 5, not the bossType argument it's called with).
+        m_calamity.level = (EnemyConfig::TEST_BOSS_TYPE == 5) ? 5 : std::clamp(EnemyConfig::TEST_BOSS_TYPE, 1, 4);
         m_resources.reishi = 9999;
         m_resources.vida = 9999;
         m_resources.disli = 9999;
@@ -1690,6 +1692,8 @@ void Game::UpdateGameplay(float deltaTime)
                             m_sector5BossQueue.pop_back();
                             float spawnX = RandomFloat((float)SCREEN_WIDTH * 0.25f, (float)SCREEN_WIDTH * 0.75f);
                             SpawnBoss(nextBoss, spawnX, -150.0f);
+                            m_asteroids.back().scale *= 0.75f;
+                            m_asteroids.back().radius *= 0.75f;
                         }
 
                         // Check if all bosses are defeated in Sector 5
@@ -1889,7 +1893,7 @@ void Game::UpdateGameplay(float deltaTime)
                     }
                     else
                     {
-                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), RandomFloat(160.0f, 320.0f) };
+                        it->bossTargetPos = { std::clamp(RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), it->laneMinX, it->laneMaxX), RandomFloat(160.0f, 320.0f) };
                     }
 
                     // Periodic 4-way pulse shots
@@ -1975,7 +1979,7 @@ void Game::UpdateGameplay(float deltaTime)
                     {
                         it->bossPhase = BossPhase::Patrol;
                         it->bossPhaseTimer = EnemyConfig::Boss2.patrolDuration;
-                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), RandomFloat(160.0f, 320.0f) };
+                        it->bossTargetPos = { std::clamp(RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), it->laneMinX, it->laneMaxX), RandomFloat(160.0f, 320.0f) };
                     }
                 }
             }
@@ -1993,7 +1997,7 @@ void Game::UpdateGameplay(float deltaTime)
                         it->position.y = EnemyConfig::Boss3.hoverY;
                         it->bossPhase = BossPhase::GlideTop;
                         it->bossPhaseTimer = EnemyConfig::Boss3.glideDuration;
-                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), EnemyConfig::Boss3.hoverY };
+                        it->bossTargetPos = { std::clamp(RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), it->laneMinX, it->laneMaxX), EnemyConfig::Boss3.hoverY };
                         it->velocity = { 0.0f, 0.0f };
                     }
                 }
@@ -2016,6 +2020,7 @@ void Game::UpdateGameplay(float deltaTime)
                         float newX = (it->position.x < (float)SCREEN_WIDTH * 0.5f)
                             ? RandomFloat((float)SCREEN_WIDTH * 0.55f, (float)SCREEN_WIDTH - 220.0f)
                             : RandomFloat(220.0f, (float)SCREEN_WIDTH * 0.45f);
+                        newX = std::clamp(newX, it->laneMinX, it->laneMaxX);
                         it->bossTargetPos = { newX, EnemyConfig::Boss3.hoverY };
                     }
 
@@ -2323,7 +2328,7 @@ void Game::UpdateGameplay(float deltaTime)
                     {
                         it->bossPhase = BossPhase::GlideTop;
                         it->bossPhaseTimer = EnemyConfig::Boss3.glideDuration;
-                        it->bossTargetPos = { RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), EnemyConfig::Boss3.hoverY };
+                        it->bossTargetPos = { std::clamp(RandomFloat(250.0f, (float)SCREEN_WIDTH - 250.0f), it->laneMinX, it->laneMaxX), EnemyConfig::Boss3.hoverY };
                     }
                 }
             }
@@ -2349,10 +2354,12 @@ void Game::UpdateGameplay(float deltaTime)
                 {
                     // Slow drifting rock: gently bounces within a vertical band so it stays on
                     // screen (and its HP bar stays readable) instead of sinking off the bottom.
+                    // Kept to the upper "boss arena" band (same general area the other bosses
+                    // hover in) rather than drifting deep into the player's play space.
                     it->position.y += it->velocity.y * deltaTime;
                     it->rotation += it->rotationSpeed * deltaTime;
                     float minY = 160.0f;
-                    float maxY = (float)SCREEN_HEIGHT - 220.0f;
+                    float maxY = 420.0f;
                     if (it->position.y < minY)
                     {
                         it->position.y = minY;
@@ -3784,6 +3791,13 @@ void Game::DamagePlayer(int amount)
         return; // Invulnerable during Dash
     }
 
+    if (m_bossWarningTimer > 0.0f)
+    {
+        return; // Grace period while the "BOSS WARNING" banner is up -- the boss (and any orbs/
+                // projectiles it spawns with) can't hurt the player until they've had a moment
+                // to see the warning and react, not be hit before they even notice the boss arrived.
+    }
+
     if (m_currentShield > 0)
     {
         ConsumeShieldCharge(false);
@@ -3921,8 +3935,25 @@ void Game::TriggerBossEncounter(int bossType)
         int b1 = m_sector5BossQueue.back(); m_sector5BossQueue.pop_back();
         int b2 = m_sector5BossQueue.back(); m_sector5BossQueue.pop_back();
 
+        // Slightly smaller and kept to their own half of the screen so two large boss sprites
+        // don't overlap and hide each other when they're both patrolling at once.
         SpawnBoss(b1, (float)SCREEN_WIDTH * 0.30f, -140.0f);
+        {
+            Asteroid& b1Ref = m_asteroids.back();
+            b1Ref.scale *= 0.75f;
+            b1Ref.radius *= 0.75f;
+            b1Ref.laneMinX = 0.0f;
+            b1Ref.laneMaxX = (float)SCREEN_WIDTH * 0.5f;
+        }
+
         SpawnBoss(b2, (float)SCREEN_WIDTH * 0.70f, -140.0f);
+        {
+            Asteroid& b2Ref = m_asteroids.back();
+            b2Ref.scale *= 0.75f;
+            b2Ref.radius *= 0.75f;
+            b2Ref.laneMinX = (float)SCREEN_WIDTH * 0.5f;
+            b2Ref.laneMaxX = (float)SCREEN_WIDTH;
+        }
     }
     else
     {
@@ -6369,7 +6400,7 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
         {
             boss.position.y = EnemyConfig::BossFinal.hoverY;
             boss.bossPhase = BossPhase::Patrol;
-            boss.bossTargetPos = DirectX::XMFLOAT2((float)SCREEN_WIDTH * 0.75f, EnemyConfig::BossFinal.hoverY);
+            boss.bossTargetPos = DirectX::XMFLOAT2(std::clamp((float)SCREEN_WIDTH * 0.75f, boss.laneMinX, boss.laneMaxX), EnemyConfig::BossFinal.hoverY);
         }
     }
     else
@@ -6387,7 +6418,7 @@ void Game::UpdateFinalBoss(Asteroid& boss, float deltaTime)
             float nextX = (boss.position.x < (float)SCREEN_WIDTH * 0.5f)
                 ? RandomFloat((float)SCREEN_WIDTH * 0.60f, (float)SCREEN_WIDTH - 180.0f)
                 : RandomFloat(180.0f, (float)SCREEN_WIDTH * 0.40f);
-            boss.bossTargetPos.x = nextX;
+            boss.bossTargetPos.x = std::clamp(nextX, boss.laneMinX, boss.laneMaxX);
         }
     }
 

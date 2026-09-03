@@ -334,6 +334,12 @@ struct Asteroid
     int boss3PendingPhase = 1;  // Which phase to enter once the current PhaseTransition pause ends
     DirectX::XMFLOAT2 boss3SafePos{ 800.0f, 600.0f };
 
+    // Sector 5 Boss Rush: keeps this boss patrolling within its own horizontal half of the
+    // screen so two simultaneous bosses don't wander into each other and overlap. Unconstrained
+    // (effectively unlimited) outside the Boss Rush.
+    float laneMinX = -10000.0f;
+    float laneMaxX = 10000.0f;
+
     // Final Boss (Boss 4) State Machine & Timers
     FinalBossPhase finalPhase = FinalBossPhase::OrbShield;
     bool invulnerable = false;
