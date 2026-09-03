@@ -2291,9 +2291,42 @@ void Game::UpdateGameplay(float deltaTime)
             {
                 UpdateFinalBoss(*it, deltaTime);
             }
+            else if (it->isBoss && it->bossType == 1)
+            {
+                if (it->bossPhase == BossPhase::Enter)
+                {
+                    it->position.y += it->velocity.y * deltaTime;
+                    it->rotation += it->rotationSpeed * deltaTime;
+                    if (it->position.y >= it->bossTargetPos.y)
+                    {
+                        it->position.y = it->bossTargetPos.y;
+                        it->bossPhase = BossPhase::Patrol;
+                        it->velocity = { 0.0f, EnemyConfig::Boss1.moveSpeed }; // Resume its slow drift
+                    }
+                }
+                else
+                {
+                    // Slow drifting rock: gently bounces within a vertical band so it stays on
+                    // screen (and its HP bar stays readable) instead of sinking off the bottom.
+                    it->position.y += it->velocity.y * deltaTime;
+                    it->rotation += it->rotationSpeed * deltaTime;
+                    float minY = 160.0f;
+                    float maxY = (float)SCREEN_HEIGHT - 220.0f;
+                    if (it->position.y < minY)
+                    {
+                        it->position.y = minY;
+                        it->velocity.y = fabsf(it->velocity.y);
+                    }
+                    else if (it->position.y > maxY)
+                    {
+                        it->position.y = maxY;
+                        it->velocity.y = -fabsf(it->velocity.y);
+                    }
+                }
+            }
             else
             {
-                // Normal Asteroid or Boss 1 movement
+                // Normal Asteroid movement
                 it->position.x += it->velocity.x * deltaTime;
                 it->position.y += it->velocity.y * deltaTime;
                 it->rotation += it->rotationSpeed * deltaTime;
@@ -3003,6 +3036,17 @@ void Game::StartExpeditionQuickLaunch()
 
 void Game::UpdateUpgrade(float deltaTime)
 {
+    if (!m_treeTutorialShown)
+    {
+        StartTreeTutorial();
+    }
+
+    if (m_tutorialDialogueActive)
+    {
+        UpdateTutorialModal(deltaTime);
+        return; // Complete pause while the welcome dialogue is open, same as elsewhere
+    }
+
     m_bgRenderer.Update(deltaTime, false);
 
     // Holographic entrance from the Main Menu: ship eases toward its dock position on the left
@@ -3853,7 +3897,14 @@ void Game::SpawnBoss(int bossType, float startX, float startY)
     if (bossType == 1)
     {
         boss.position = DirectX::XMFLOAT2(startX, startY);
-        boss.velocity = DirectX::XMFLOAT2(0.0f, EnemyConfig::Boss1.moveSpeed);
+        // Fast entry speed so the boss (and its HP bar) becomes visible quickly, instead of the
+        // slow 16 px/s cruising speed it used to fall at from spawn -- that alone took 10+
+        // seconds just to enter view. Enter phase settles it at bossTargetPos.y, then it resumes
+        // its slow drifting-rock movement, gently bouncing within a vertical band so it can never
+        // sink off-screen for good.
+        boss.velocity = DirectX::XMFLOAT2(0.0f, 140.0f);
+        boss.bossPhase = BossPhase::Enter;
+        boss.bossTargetPos = DirectX::XMFLOAT2(startX, 220.0f);
         boss.rotation = 0.0f;
         boss.rotationSpeed = EnemyConfig::Boss1.rotationSpeed;
         boss.maxHp = EnemyConfig::Boss1.baseHp + (float)(m_calamity.level - 1) * EnemyConfig::Boss1.hpPerSectorLevel;
@@ -5358,6 +5409,20 @@ void Game::StartTutorial()
     m_tutorialPortraitPop = 0.30f;
 }
 
+void Game::StartTreeTutorial()
+{
+    m_treeTutorialShown = true;
+    m_tutorialPhase = TutorialPhase::TreeIntro;
+    m_tutorialQueue = {
+        { "THIS IS YOUR UPGRADE TREE, CAPTAIN. SPEND WHAT YOU'VE COLLECTED TO PERMANENTLY STRENGTHEN YOUR SHIP.", TutorialHighlight::None },
+        { "FOUR PATHS AWAIT -- WEAPONS, SENSORS, ENGINE, AND DEFENSE -- EACH UNLOCKING POWERFUL NEW ABILITIES.", TutorialHighlight::None },
+        { "CHOOSE WISELY. THE STRONGER YOUR SHIP, THE DEEPER INTO THE CALAMITY YOU CAN VENTURE.", TutorialHighlight::None },
+    };
+    m_tutorialLineIndex = 0;
+    m_tutorialDialogueActive = true;
+    m_tutorialPortraitPop = 0.30f;
+}
+
 void Game::TriggerTutorialAsteroidMilestone()
 {
     if (!m_tutorialActive || m_tutorialAsteroidTriggered) return;
@@ -5412,7 +5477,9 @@ void Game::DrawTutorialDialogue()
     float boxW = (float)SCREEN_WIDTH - 140.0f;
     float boxH = 168.0f;
     float boxX = 70.0f;
-    float boxY = (float)SCREEN_HEIGHT - boxH - 34.0f;
+    // Sits clear above the skill bar and the calamity/boss-approach meter at the very bottom,
+    // instead of overlapping and hiding them.
+    float boxY = (float)SCREEN_HEIGHT - boxH - 160.0f;
 
     // Dim the world slightly behind the dialogue so it reads as a focused conversation
     Sprite_DrawRect(0.0f, 0.0f, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, { 0.0f, 0.0f, 0.02f, 0.18f });
@@ -5503,6 +5570,8 @@ void Game::DrawUpgrade()
     }
 
     m_upgradeTree.Draw(m_resources, m_upgradeTree.GetCurrentSectorIndex());
+
+    DrawTutorialDialogue();
 }
 
 // ============================================================================

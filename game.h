@@ -65,7 +65,8 @@ enum class TutorialHighlight
 enum class TutorialPhase
 {
     Intro,        // Movement / weapon / asteroid introduction, shown before the player has control
-    PostAsteroid  // Resources / time / health / boss-timer walkthrough, after the first kill
+    PostAsteroid, // Resources / time / health / boss-timer walkthrough, after the first kill
+    TreeIntro     // Upgrade Tree welcome/story, shown the first time that screen is opened
 };
 
 struct TutorialLine
@@ -562,6 +563,7 @@ private:
 
     // First-time tutorial (Sector 1 only, once per session)
     void StartTutorial();                           // Arms the intro dialogue queue
+    void StartTreeTutorial();                        // Arms the Upgrade Tree's first-visit welcome dialogue
     void TriggerTutorialAsteroidMilestone();         // Fires the resources/time/health/boss-timer walkthrough
     void UpdateTutorialModal(float deltaTime);       // Advances the current dialogue line on input
     void DrawTutorialDialogue();                     // The VN-style dialogue box + portrait
@@ -722,6 +724,7 @@ private:
 
     // First-time Tutorial (Sector 1 only, shown once per session)
     bool m_tutorialCompleted = false;       // Persists across runs within this session (no save system)
+    bool m_treeTutorialShown = false;       // Upgrade Tree welcome dialogue, shown once per session
     bool m_tutorialActive = false;          // True from the moment the intro starts until the last line closes
     bool m_tutorialDialogueActive = false;  // True while a dialogue box is up -- pauses gameplay, like the chest modal
     bool m_tutorialIntroPending = false;    // Armed by StartTutorial(); popped open once ShipEntering settles into Active
