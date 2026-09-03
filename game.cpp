@@ -119,6 +119,45 @@ static float CenteredTextX(const char* str, float size, float centerX)
     return centerX - MatrixTextWidth(str, size) * 0.5f;
 }
 
+// Simple word-wrap for DrawMatrixString: breaks `text` onto multiple lines no wider than
+// maxWidth and returns how many lines it drew, so callers can size their box around it.
+static int DrawWrappedMatrixText(const char* text, float x, float y, float maxWidth, float lineHeight,
+    float size, int textureId, const DirectX::XMFLOAT4& color)
+{
+    std::string s(text);
+    std::string word;
+    float curX = x;
+    float curY = y;
+    int lineCount = 1;
+    float spaceW = 4.0f * size;
+
+    for (size_t i = 0; i <= s.size(); ++i)
+    {
+        bool atEnd = (i == s.size());
+        if (atEnd || s[i] == ' ')
+        {
+            if (!word.empty())
+            {
+                float wordW = MatrixTextWidth(word.c_str(), size);
+                if (curX > x && curX + wordW > x + maxWidth)
+                {
+                    curX = x;
+                    curY += lineHeight;
+                    ++lineCount;
+                }
+                DrawMatrixString(curX, curY, word.c_str(), size, textureId, color);
+                curX += wordW + spaceW;
+                word.clear();
+            }
+        }
+        else
+        {
+            word += s[i];
+        }
+    }
+    return lineCount;
+}
+
 static void DrawNumber(float x, float y, int value, int digitCount, float spacing, int textureId, DirectX::XMFLOAT4 color = { 1.0f, 1.0f, 1.0f, 1.0f })
 {
     if (textureId == -1) return;
@@ -269,6 +308,7 @@ bool Game::Initialize(HWND hWnd)
     m_texCpu = Texture_Load(L"asset/cpu.png");
     m_texKey = Texture_Load(L"asset/key.png");
     m_texChest = Texture_Load(L"asset/chest.png");
+    m_texSupporter = Texture_Load(L"asset/supporter.png"); // Tutorial dialogue portrait
     m_texTaret = Texture_Load(L"asset/taret.png");
     m_texSkillDash = Texture_Load(L"asset/dashSkill.png");
     m_texSkillWave = Texture_Load(L"asset/energyWaveSkill.png");
@@ -409,6 +449,18 @@ void Game::ResetRun()
     m_isChestModalActive = false;
     m_activeChestIndex = -1;
     m_chestSpawnTimer = 0.0f;
+
+    // Run-scoped tutorial state (m_tutorialCompleted is intentionally NOT reset here -- once
+    // finished it stays finished for the rest of this session). StartExpeditionQuickLaunch()
+    // re-arms it via StartTutorial() right after this call, when appropriate.
+    m_tutorialActive = false;
+    m_tutorialDialogueActive = false;
+    m_tutorialIntroPending = false;
+    m_tutorialAsteroidTriggered = false;
+    m_tutorialQueue.clear();
+    m_tutorialLineIndex = 0;
+    m_tutorialPortraitPop = 0.0f;
+
     m_anomalousSignalTimer = 0.0f;
     m_anomalousWarningDisplayTimer = 0.0f;
     m_overheatDuration = 0.0f;
@@ -771,6 +823,12 @@ void Game::UpdateGameplay(float deltaTime)
         return; // Complete Pause while modal is open!
     }
 
+    if (m_tutorialDialogueActive)
+    {
+        UpdateTutorialModal(deltaTime);
+        return; // Complete Pause while the tutorial dialogue is open, same as the chest modal
+    }
+
     // Update Procedural Background Shader with dynamic boss status
     bool isBossAlive = m_bossTriggered && !m_bossVictory;
     m_bgRenderer.Update(deltaTime, isBossAlive);
@@ -799,6 +857,11 @@ void Game::UpdateGameplay(float deltaTime)
             if (m_shipEntryElapsed >= flightDuration + settleDuration)
             {
                 m_runState = RunState::Active; // Hand control to the player; spawning begins now
+                if (m_tutorialIntroPending)
+                {
+                    m_tutorialIntroPending = false;
+                    m_tutorialDialogueActive = true;
+                }
             }
         }
         return;
@@ -1762,6 +1825,7 @@ void Game::UpdateGameplay(float deltaTime)
                     // Advance Calamity / Boss Meter by mining asteroids
                     m_calamity.current += 3.5f;
                     m_runStats.asteroidsMined++;
+                    TriggerTutorialAsteroidMilestone();
 
                     // Zero Point Reactor fuel refill
                     if (m_stats.zeroPointReactor)
@@ -2930,6 +2994,11 @@ void Game::StartExpeditionQuickLaunch()
     ResetRun();
     m_currentScene = GameScene::Gameplay;
     m_upgradeEnteredFromMenu = false;
+
+    if (m_calamity.level == 1 && !m_tutorialCompleted)
+    {
+        StartTutorial();
+    }
 }
 
 void Game::UpdateUpgrade(float deltaTime)
@@ -4957,6 +5026,24 @@ void Game::DrawGameplay()
         }
     }
 
+    // Tutorial: pulsing highlight around whichever HUD element the current line is teaching
+    DrawTutorialHighlights();
+
+    // Tutorial: small objective reminder once the intro dialogue closes and control is handed
+    // back, until the player destroys their first asteroid and the walkthrough continues
+    if (m_tutorialActive && !m_tutorialDialogueActive && !m_tutorialAsteroidTriggered)
+    {
+        float bannerW = 420.0f;
+        float bannerH = 34.0f;
+        float bannerX = (float)SCREEN_WIDTH * 0.5f - bannerW * 0.5f;
+        float bannerY = 90.0f;
+        float pulse = sinf(m_totalTime * 4.0f) * 0.15f + 0.85f;
+        Sprite_DrawRect(bannerX, bannerY, bannerW, bannerH, { 0.06f, 0.08f, 0.12f, 0.80f });
+        Sprite_DrawRectBorder(bannerX, bannerY, bannerW, bannerH, 1.5f, { 1.0f, 0.85f, 0.25f, pulse });
+        const char* objectiveText = "OBJECTIVE: DESTROY AN ASTEROID";
+        DrawMatrixString(CenteredTextX(objectiveText, 1.6f, (float)SCREEN_WIDTH * 0.5f), bannerY + 9.0f, objectiveText, 1.6f, m_texLaser, { 1.0f, 0.90f, 0.60f, 1.0f });
+    }
+
     // Ancient Chest Pause Modal
     if (m_isChestModalActive)
     {
@@ -4974,6 +5061,9 @@ void Game::DrawGameplay()
     {
         DrawRunSummary();
     }
+
+    // Tutorial dialogue box draws on top of everything else, same as the other modals
+    DrawTutorialDialogue();
 }
 
 void Game::DrawChestModal()
@@ -5246,6 +5336,159 @@ void Game::DrawEnergyDepletedModal()
     Sprite_DrawRect(btnX, btnY, btnW, btnH, { 0.15f, 0.25f, 0.35f, 0.95f });
     Sprite_DrawRectBorder(btnX, btnY, btnW, btnH, 2.0f, { 0.40f, 0.95f, 1.0f, 1.0f });
     DrawMatrixString(btnX + 22.0f, btnY + 17.0f, "[ RETURN TO BASE (SPACE / CLICK) ]", 1.7f, m_texLaser, { 1.0f, 1.0f, 1.0f, 1.0f });
+}
+
+// ============================================================================
+// FIRST-TIME TUTORIAL (Sector 1 only, shown once per session)
+// ============================================================================
+
+void Game::StartTutorial()
+{
+    m_tutorialActive = true;
+    m_tutorialIntroPending = true; // Popped open once the ship settles into Active
+    m_tutorialAsteroidTriggered = false;
+    m_tutorialPhase = TutorialPhase::Intro;
+    m_tutorialQueue = {
+        { "WELCOME ABOARD, CAPTAIN. USE W A S D TO STEER YOUR SHIP.", TutorialHighlight::None },
+        { "YOUR LASER FIRES AUTOMATICALLY -- JUST GET CLOSE TO A TARGET.", TutorialHighlight::None },
+        { "SEE THOSE ASTEROIDS? DESTROY THEM TO HARVEST VALUABLE RESOURCES.", TutorialHighlight::None },
+    };
+    m_tutorialLineIndex = 0;
+    m_tutorialDialogueActive = false;
+    m_tutorialPortraitPop = 0.30f;
+}
+
+void Game::TriggerTutorialAsteroidMilestone()
+{
+    if (!m_tutorialActive || m_tutorialAsteroidTriggered) return;
+
+    m_tutorialAsteroidTriggered = true;
+    m_tutorialPhase = TutorialPhase::PostAsteroid;
+    m_tutorialQueue = {
+        { "NICE SHOT! ASTEROIDS SCATTER REISHI AND OTHER RESOURCES WHEN DESTROYED.", TutorialHighlight::Resources },
+        { "COLLECT THEM TO UPGRADE YOUR SHIP LATER FROM THE UPGRADE TREE.", TutorialHighlight::Resources },
+        { "THIS IS YOUR VOYAGE ENERGY -- IT DRAINS OVER TIME. RUN OUT AND YOUR EXPEDITION ENDS.", TutorialHighlight::Time },
+        { "THIS IS YOUR HULL INTEGRITY -- WATCH OUT FOR ENEMY FIRE, OR YOUR SHIP WILL FALL.", TutorialHighlight::Health },
+        { "AND THIS GAUGE FILLS AS YOU EXPLORE -- WHEN IT'S FULL, A DANGEROUS THREAT WILL ARRIVE.", TutorialHighlight::BossTimer },
+    };
+    m_tutorialLineIndex = 0;
+    m_tutorialDialogueActive = true;
+    m_tutorialPortraitPop = 0.30f;
+}
+
+void Game::UpdateTutorialModal(float deltaTime)
+{
+    m_totalTime += deltaTime; // Keep the portrait bob/pulse animations alive while paused
+
+    if (m_tutorialPortraitPop > 0.0f)
+    {
+        m_tutorialPortraitPop -= deltaTime;
+    }
+
+    bool confirm = InputKeyboard_IsTrigger(KK_SPACE) || InputKeyboard_IsTrigger(KK_ENTER) || InputMouse_IsTrigger(MOUSE_BUTTON_LEFT);
+    if (!confirm) return;
+
+    if (m_soundClick != -1) PlayAudio(m_soundClick);
+    m_tutorialLineIndex++;
+    m_tutorialPortraitPop = 0.30f;
+
+    if (m_tutorialLineIndex >= (int)m_tutorialQueue.size())
+    {
+        m_tutorialDialogueActive = false;
+        if (m_tutorialPhase == TutorialPhase::PostAsteroid)
+        {
+            m_tutorialActive = false;
+            m_tutorialCompleted = true;
+        }
+    }
+}
+
+void Game::DrawTutorialDialogue()
+{
+    if (!m_tutorialDialogueActive || m_tutorialQueue.empty() || m_tutorialLineIndex >= (int)m_tutorialQueue.size()) return;
+
+    const TutorialLine& line = m_tutorialQueue[m_tutorialLineIndex];
+
+    float boxW = (float)SCREEN_WIDTH - 140.0f;
+    float boxH = 168.0f;
+    float boxX = 70.0f;
+    float boxY = (float)SCREEN_HEIGHT - boxH - 34.0f;
+
+    // Dim the world slightly behind the dialogue so it reads as a focused conversation
+    Sprite_DrawRect(0.0f, 0.0f, (float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, { 0.0f, 0.0f, 0.02f, 0.18f });
+
+    Sprite_DrawRect(boxX, boxY, boxW, boxH, { 0.05f, 0.06f, 0.10f, 0.94f });
+    Sprite_DrawRectBorder(boxX, boxY, boxW, boxH, 2.5f, { 0.40f, 0.85f, 1.0f, 0.90f });
+    Sprite_DrawRect(boxX, boxY, boxW, 4.0f, { 0.40f, 0.85f, 1.0f, 0.70f });
+
+    // Portrait frame (pixel-art VN style: framed portrait on the left, text on the right)
+    float portraitSize = 138.0f;
+    float portraitX = boxX + 16.0f;
+    float portraitY = boxY + (boxH - portraitSize) * 0.5f;
+    Sprite_DrawRect(portraitX - 4.0f, portraitY - 4.0f, portraitSize + 8.0f, portraitSize + 8.0f, { 0.02f, 0.03f, 0.05f, 0.95f });
+    Sprite_DrawRectBorder(portraitX - 4.0f, portraitY - 4.0f, portraitSize + 8.0f, portraitSize + 8.0f, 2.0f, { 0.45f, 0.90f, 1.0f, 1.0f });
+
+    if (m_texSupporter != -1)
+    {
+        // Talking animation: gentle continuous bob, plus a quick pop-scale kick on line change
+        float bob = sinf(m_totalTime * 3.0f) * 3.0f;
+        float popT = std::clamp(m_tutorialPortraitPop / 0.30f, 0.0f, 1.0f);
+        float drawSize = portraitSize * (1.0f + popT * 0.10f);
+        float cx = portraitX + portraitSize * 0.5f;
+        float cy = portraitY + portraitSize * 0.5f + bob;
+        Sprite_Draw(m_texSupporter, cx - drawSize * 0.5f, cy - drawSize * 0.5f, drawSize, drawSize,
+            0, 0, Texture_GetWidth(m_texSupporter), Texture_GetHeight(m_texSupporter),
+            { 1.0f, 1.0f, 1.0f, 1.0f });
+    }
+
+    float textX = portraitX + portraitSize + 28.0f;
+
+    // Speaker label
+    DrawMatrixString(textX, boxY + 16.0f, "SHIP SUPPORT", 1.8f, m_texLaser, { 0.45f, 0.95f, 1.0f, 1.0f });
+    Sprite_DrawRect(textX, boxY + 36.0f, 220.0f, 1.5f, { 0.45f, 0.95f, 1.0f, 0.6f });
+
+    // Dialogue text, word-wrapped to fit beside the portrait
+    float textMaxWidth = (boxX + boxW - 30.0f) - textX;
+    DrawWrappedMatrixText(line.text.c_str(), textX, boxY + 56.0f, textMaxWidth, 26.0f, 1.9f, m_texLaser, { 0.92f, 0.95f, 1.0f, 1.0f });
+
+    // Progress + Next prompt
+    char progBuf[16];
+    sprintf_s(progBuf, "%d / %d", m_tutorialLineIndex + 1, (int)m_tutorialQueue.size());
+    DrawMatrixString(boxX + boxW - 210.0f, boxY + boxH - 28.0f, progBuf, 1.6f, m_texLaser, { 0.6f, 0.7f, 0.8f, 0.8f });
+
+    float blink = (sinf(m_totalTime * 6.0f) > 0.0f) ? 1.0f : 0.4f;
+    DrawMatrixString(boxX + boxW - 140.0f, boxY + boxH - 28.0f, "NEXT >", 1.7f, m_texLaser, { 1.0f, 0.85f, 0.30f, blink });
+}
+
+void Game::DrawTutorialHighlights()
+{
+    if (!m_tutorialDialogueActive || m_tutorialQueue.empty() || m_tutorialLineIndex >= (int)m_tutorialQueue.size()) return;
+
+    TutorialHighlight hl = m_tutorialQueue[m_tutorialLineIndex].highlight;
+    if (hl == TutorialHighlight::None) return;
+
+    float pulse = sinf(m_totalTime * 6.0f) * 0.25f + 0.75f;
+    DirectX::XMFLOAT4 glowCol{ 1.0f, 0.85f, 0.25f, pulse };
+
+    if (hl == TutorialHighlight::Resources)
+    {
+        Sprite_DrawRectBorder(28.0f, 14.0f, 170.0f, 62.0f, 3.0f, glowCol);
+    }
+    else if (hl == TutorialHighlight::Health)
+    {
+        float heartsW = (float)m_stats.maxHealth * 32.0f - 6.0f;
+        Sprite_DrawRectBorder(32.0f, 76.0f, heartsW + 16.0f, 38.0f, 3.0f, glowCol);
+    }
+    else if (hl == TutorialHighlight::Time)
+    {
+        Sprite_DrawRectBorder((float)SCREEN_WIDTH - 252.0f, 20.0f, 264.0f, 58.0f, 3.0f, glowCol);
+    }
+    else if (hl == TutorialHighlight::BossTimer)
+    {
+        float meterY = (float)SCREEN_HEIGHT - 54.0f;
+        float barW = (float)SCREEN_WIDTH - 80.0f;
+        Sprite_DrawRectBorder(32.0f, meterY - 6.0f, barW + 16.0f, 46.0f, 3.0f, glowCol);
+    }
 }
 
 void Game::DrawUpgrade()

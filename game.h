@@ -50,6 +50,30 @@ struct MenuAmbientObject
     int kind = 0; // 0: distant asteroid, 1: drifting mineral, 2: mysterious silhouette
 };
 
+// Which HUD element (if any) a tutorial dialogue line should draw a pulsing highlight around
+enum class TutorialHighlight
+{
+    None,
+    Resources,   // Top-left Reishi counter
+    Health,      // Hull integrity hearts
+    Time,        // Voyage Energy / fuel bar
+    BossTimer    // Calamity / boss-approach meter
+};
+
+// Which dialogue queue is currently active, so the tutorial knows what to do once its last
+// line is dismissed (close and hand back control, vs. finish the tutorial entirely).
+enum class TutorialPhase
+{
+    Intro,        // Movement / weapon / asteroid introduction, shown before the player has control
+    PostAsteroid  // Resources / time / health / boss-timer walkthrough, after the first kill
+};
+
+struct TutorialLine
+{
+    std::string text;
+    TutorialHighlight highlight = TutorialHighlight::None;
+};
+
 #include "upgrade_tree.h"
 #include "enemy_config.h"
 #include "background_shader.h"
@@ -535,7 +559,14 @@ private:
     void DrawRunSummary();
     void DrawChestModal();
     void DrawEnergyDepletedModal();
-    
+
+    // First-time tutorial (Sector 1 only, once per session)
+    void StartTutorial();                           // Arms the intro dialogue queue
+    void TriggerTutorialAsteroidMilestone();         // Fires the resources/time/health/boss-timer walkthrough
+    void UpdateTutorialModal(float deltaTime);       // Advances the current dialogue line on input
+    void DrawTutorialDialogue();                     // The VN-style dialogue box + portrait
+    void DrawTutorialHighlights();                   // Pulsing HUD highlight for the current line
+
     void SpawnAsteroids(float deltaTime);
     void SpawnEnemies(float deltaTime);
     void SpawnChest();
@@ -613,6 +644,7 @@ private:
     int m_texCpu = -1;            // cpu.png
     int m_texKey = -1;            // key.png
     int m_texChest = -1;          // chest.png
+    int m_texSupporter = -1;      // supporter.png (tutorial dialogue portrait)
     int m_texTaret = -1;          // taret.png
     int m_texSkillDash = -1;      // dashSkill.png
     int m_texSkillWave = -1;      // energyWaveSkill.png
@@ -687,6 +719,17 @@ private:
     float m_anomalousWarningDisplayTimer = 0.0f;
     bool m_isChestModalActive = false;
     int m_activeChestIndex = -1;
+
+    // First-time Tutorial (Sector 1 only, shown once per session)
+    bool m_tutorialCompleted = false;       // Persists across runs within this session (no save system)
+    bool m_tutorialActive = false;          // True from the moment the intro starts until the last line closes
+    bool m_tutorialDialogueActive = false;  // True while a dialogue box is up -- pauses gameplay, like the chest modal
+    bool m_tutorialIntroPending = false;    // Armed by StartTutorial(); popped open once ShipEntering settles into Active
+    bool m_tutorialAsteroidTriggered = false;
+    TutorialPhase m_tutorialPhase = TutorialPhase::Intro;
+    std::vector<TutorialLine> m_tutorialQueue;
+    int m_tutorialLineIndex = 0;
+    float m_tutorialPortraitPop = 0.0f;     // Brief "pop" scale kick each time the line advances
 
     // Combat dynamics (Overheat, Momentum, Slingshot, Retaliation)
     float m_overheatDuration = 0.0f;
